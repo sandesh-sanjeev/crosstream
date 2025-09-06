@@ -1,0 +1,8 @@
+# Do not check in build artifacts.
+target
+
+# Do not check in lock files.
+Cargo.lock
+
+# Do not check in vscode settings.
+.vscode
