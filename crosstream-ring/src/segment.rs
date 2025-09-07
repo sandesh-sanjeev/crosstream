@@ -185,6 +185,7 @@ impl<S: Storage> Segment<S> {
 
 /// Storage engine that backs a [`Segment`].
 pub trait Storage {
+    /// Associated type for records stored.
     type Record: Record;
 
     /// Trim first len records from storage.
