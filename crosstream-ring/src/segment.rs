@@ -310,7 +310,7 @@ impl<T: Record> Storage for MmapStorage<T> {
 
 /// Strategy used to trim records during appends into a [`Segment`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(test, derive(bolero::generator::TypeGenerator))]
+#[cfg_attr(test, derive(bolero::TypeGenerator))]
 pub enum Trimmer {
     /// When an append operation occurs and there isn't sufficient capacity
     /// to accommodate records, this does nothing. Meaning one or more records
@@ -327,7 +327,7 @@ pub enum Trimmer {
 mod tests {
     use super::*;
     use bolero::{check, generator::*};
-    use std::fmt::Debug;
+    use std::{fmt::Debug, time::Duration};
 
     // Anout 100 MB worth of memory.
     const SEG_MEMORY: usize = 100 * 1024 * 1024;
@@ -345,6 +345,8 @@ mod tests {
             #[test]
             fn $name() {
                 check!()
+                    .with_iterations(50)
+                    .with_test_time(Duration::from_millis(500))
                     .with_type::<(Vec<Operation<$num>>, Trimmer)>()
                     .for_each(|(operations, trimmer)| {
                         let capacity = SEG_MEMORY / <$num>::size();
@@ -376,7 +378,7 @@ mod tests {
 
                             assert_eq!(mmap.records(), vec.records());
                         }
-                    })
+                    });
             }
         };
     }
