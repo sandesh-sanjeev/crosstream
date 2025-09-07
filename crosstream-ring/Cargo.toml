@@ -3,4 +3,24 @@ name = "crosstream-ring"
 version = "0.1.0"
 edition = "2024"
 
+[[bench]]
+name = "ring"
+harness = false
+
 [dependencies]
+# For allocating off-heap memory.
+memmap2 = "0.9"
+
+# For byte to record transmutations.
+bytemuck = { version = "1.23", features = ["derive", "must_cast"] }
+
+[dev-dependencies]
+# For random number generator in tests.
+rand = { version = "0.9", features = ["thread_rng"] }
+
+# For a benchmark harness in stable rust.
+criterion = { version = "0.7", features = ["html_reports"] }
+
+# For property based tests.
+bolero = "0.13"
+# bolero-generator = "0.13"
