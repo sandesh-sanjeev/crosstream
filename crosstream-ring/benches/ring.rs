@@ -1,7 +1,7 @@
 //! Benchmarks for a [`Ring`].
 
 use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
-use crosstream_ring::{Record, Ring};
+use crosstream_ring::{Record, Segment};
 use rand::Rng;
 use std::{hint::black_box, time::Duration};
 
@@ -162,51 +162,51 @@ macro_rules! run_benchmark {
     };
 }
 
-run_benchmark!(run_ring_benchmark_u8, Ring<u8>, u8, "Ring");
+run_benchmark!(run_ring_benchmark_u8, Segment<u8>, u8, "Ring");
 run_benchmark!(run_vec_benchmark_u8, Vec<u8>, u8, "Vec");
 
-run_benchmark!(run_ring_benchmark_u16, Ring<u16>, u16, "Ring");
+run_benchmark!(run_ring_benchmark_u16, Segment<u16>, u16, "Ring");
 run_benchmark!(run_vec_benchmark_u16, Vec<u16>, u16, "Vec");
 
-run_benchmark!(run_ring_benchmark_u32, Ring<u32>, u32, "Ring");
+run_benchmark!(run_ring_benchmark_u32, Segment<u32>, u32, "Ring");
 run_benchmark!(run_vec_benchmark_u32, Vec<u32>, u32, "Vec");
 
-run_benchmark!(run_ring_benchmark_u64, Ring<u64>, u64, "Ring");
+run_benchmark!(run_ring_benchmark_u64, Segment<u64>, u64, "Ring");
 run_benchmark!(run_vec_benchmark_u64, Vec<u64>, u64, "Vec");
 
-run_benchmark!(run_ring_benchmark_u128, Ring<u128>, u128, "Ring");
+run_benchmark!(run_ring_benchmark_u128, Segment<u128>, u128, "Ring");
 run_benchmark!(run_vec_benchmark_u128, Vec<u128>, u128, "Vec");
 
-run_benchmark!(run_ring_benchmark_i8, Ring<i8>, i8, "Ring");
+run_benchmark!(run_ring_benchmark_i8, Segment<i8>, i8, "Ring");
 run_benchmark!(run_vec_benchmark_i8, Vec<i8>, i8, "Vec");
 
-run_benchmark!(run_ring_benchmark_i16, Ring<i16>, i16, "Ring");
+run_benchmark!(run_ring_benchmark_i16, Segment<i16>, i16, "Ring");
 run_benchmark!(run_vec_benchmark_i16, Vec<i16>, i16, "Vec");
 
-run_benchmark!(run_ring_benchmark_i32, Ring<i32>, i32, "Ring");
+run_benchmark!(run_ring_benchmark_i32, Segment<i32>, i32, "Ring");
 run_benchmark!(run_vec_benchmark_i32, Vec<i32>, i32, "Vec");
 
-run_benchmark!(run_ring_benchmark_i64, Ring<i64>, i64, "Ring");
+run_benchmark!(run_ring_benchmark_i64, Segment<i64>, i64, "Ring");
 run_benchmark!(run_vec_benchmark_i64, Vec<i64>, i64, "Vec");
 
-run_benchmark!(run_ring_benchmark_i128, Ring<i128>, i128, "Ring");
+run_benchmark!(run_ring_benchmark_i128, Segment<i128>, i128, "Ring");
 run_benchmark!(run_vec_benchmark_i128, Vec<i128>, i128, "Vec");
 
-run_benchmark!(run_ring_benchmark_f32, Ring<f32>, f32, "Ring");
-run_benchmark!(run_vec_benchmark_f32, Ring<f32>, f32, "Vec");
+run_benchmark!(run_ring_benchmark_f32, Segment<f32>, f32, "Ring");
+run_benchmark!(run_vec_benchmark_f32, Segment<f32>, f32, "Vec");
 
-run_benchmark!(run_ring_benchmark_f64, Ring<f64>, f64, "Ring");
-run_benchmark!(run_vec_benchmark_f64, Ring<f64>, f64, "Vec");
+run_benchmark!(run_ring_benchmark_f64, Segment<f64>, f64, "Ring");
+run_benchmark!(run_vec_benchmark_f64, Segment<f64>, f64, "Vec");
 
 trait RingBuffer<T> {
     fn bench_push(&mut self, record: T);
     fn bench_extend_slice(&mut self, records: &[T]);
 }
 
-impl<T: Record> RingBuffer<T> for Ring<T> {
+impl<T: Record> RingBuffer<T> for Segment<T> {
     fn bench_push(&mut self, record: T) {
         if self.is_full() {
-            self.trim(CAPACITY / 4);
+            self.trim(CAPACITY / 2);
         }
 
         self.push(record);
@@ -215,7 +215,7 @@ impl<T: Record> RingBuffer<T> for Ring<T> {
     fn bench_extend_slice(&mut self, records: &[T]) {
         let remaining = self.remaining();
         if remaining < records.len() {
-            self.trim(CAPACITY / 4);
+            self.trim(CAPACITY / 2);
         }
 
         self.extend_from_slice(records);
@@ -225,7 +225,7 @@ impl<T: Record> RingBuffer<T> for Ring<T> {
 impl<T: Copy> RingBuffer<T> for Vec<T> {
     fn bench_push(&mut self, record: T) {
         if self.len() >= CAPACITY {
-            self.drain(..(CAPACITY / 4));
+            self.drain(..(CAPACITY / 2));
         }
 
         self.push(record);
@@ -234,7 +234,7 @@ impl<T: Copy> RingBuffer<T> for Vec<T> {
     fn bench_extend_slice(&mut self, records: &[T]) {
         let remaining = CAPACITY - self.len();
         if remaining < records.len() {
-            self.drain(..(CAPACITY / 4));
+            self.drain(..(CAPACITY / 2));
         }
 
         self.extend_from_slice(records);
