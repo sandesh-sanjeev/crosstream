@@ -396,43 +396,43 @@ mod tests {
     state_machine_test!(state_machine_isize, isize);
 
     state_machine_test!(state_machine_u8_2, [u8; 2]);
-    state_machine_test!(state_machine_ui_2, [i8; 2]);
+    state_machine_test!(state_machine_i8_2, [i8; 2]);
 
     state_machine_test!(state_machine_u8_4, [u8; 4]);
-    state_machine_test!(state_machine_ui_4, [i8; 4]);
+    state_machine_test!(state_machine_i8_4, [i8; 4]);
 
     state_machine_test!(state_machine_u8_8, [u8; 8]);
-    state_machine_test!(state_machine_ui_8, [i8; 8]);
+    state_machine_test!(state_machine_i8_8, [i8; 8]);
 
     state_machine_test!(state_machine_u8_16, [u8; 16]);
-    state_machine_test!(state_machine_ui_16, [i8; 16]);
+    state_machine_test!(state_machine_i8_16, [i8; 16]);
 
     state_machine_test!(state_machine_u8_32, [u8; 32]);
-    state_machine_test!(state_machine_ui_32, [i8; 32]);
+    state_machine_test!(state_machine_i8_32, [i8; 32]);
 
     state_machine_test!(state_machine_u8_64, [u8; 64]);
-    state_machine_test!(state_machine_ui_64, [i8; 64]);
+    state_machine_test!(state_machine_i8_64, [i8; 64]);
 
     state_machine_test!(state_machine_u8_3, [u8; 3]);
-    state_machine_test!(state_machine_ui_3, [i8; 3]);
+    state_machine_test!(state_machine_i8_3, [i8; 3]);
 
     state_machine_test!(state_machine_u8_9, [u8; 9]);
-    state_machine_test!(state_machine_ui_9, [i8; 9]);
+    state_machine_test!(state_machine_i8_9, [i8; 9]);
 
     state_machine_test!(state_machine_u8_27, [u8; 27]);
-    state_machine_test!(state_machine_ui_27, [i8; 27]);
+    state_machine_test!(state_machine_i8_27, [i8; 27]);
 
     state_machine_test!(state_machine_u8_81, [u8; 81]);
-    state_machine_test!(state_machine_ui_81, [i8; 81]);
+    state_machine_test!(state_machine_i8_81, [i8; 81]);
 
     state_machine_test!(state_machine_u8_5, [u8; 5]);
-    state_machine_test!(state_machine_ui_5, [i8; 5]);
+    state_machine_test!(state_machine_i8_5, [i8; 5]);
 
     state_machine_test!(state_machine_u8_25, [u8; 25]);
-    state_machine_test!(state_machine_ui_25, [i8; 25]);
+    state_machine_test!(state_machine_i8_25, [i8; 25]);
 
     state_machine_test!(state_machine_u8_125, [u8; 125]);
-    state_machine_test!(state_machine_ui_125, [i8; 125]);
+    state_machine_test!(state_machine_i8_125, [i8; 125]);
 
     state_machine_test!(state_machine_u16_1, [u16; 1]);
     state_machine_test!(state_machine_u16_2, [u16; 2]);
