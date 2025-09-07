@@ -15,11 +15,5 @@ bytemuck = { version = "1.23", features = [
 ] }
 
 [dev-dependencies]
-# For random number generator in tests.
-rand = { version = "0.9", features = ["thread_rng"] }
-
-# For a benchmark harness in stable rust.
-criterion = { version = "0.7", features = ["html_reports"] }
-
 # For property based tests.
 bolero = "0.13"
