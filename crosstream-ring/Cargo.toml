@@ -23,4 +23,3 @@ criterion = { version = "0.7", features = ["html_reports"] }
 
 # For property based tests.
 bolero = "0.13"
-# bolero-generator = "0.13"

@@ -137,15 +137,6 @@ mod tests {
     /// Maximum capacity of the test ring buffer.
     const RING_CAPACITY: usize = 1024 * 1024;
 
-    /// Different types of ring buffer operations.
-    #[derive(Debug, TypeGenerator)]
-    enum Operation {
-        Clear,
-        Trim(u8),
-        Push(u64),
-        Extend(Vec<u64>),
-    }
-
     /// Methods of a ring buffer being tested.
     trait RingBuffer<T> {
         fn test_clear(&mut self);
@@ -231,39 +222,69 @@ mod tests {
         }
     }
 
-    #[test]
-    fn ring_state_machine() {
-        check!()
-            .with_type::<Vec<Operation>>()
-            .for_each(|operations| {
-                let mut ring = Ring::with_capacity(RING_CAPACITY);
-                let mut vec = Vec::with_capacity(RING_CAPACITY);
+    macro_rules! state_machine_test {
+        ($name:ident, $operation:ident, $num:ty) => {
+            #[derive(Debug, TypeGenerator)]
+            enum $operation {
+                Clear,
+                Trim(u8),
+                Push($num),
+                Extend(Vec<$num>),
+            }
 
-                for operation in operations {
-                    match operation {
-                        Operation::Clear => {
-                            ring.test_clear();
-                            vec.test_clear();
+            #[test]
+            fn $name() {
+                check!()
+                    .with_type::<Vec<$operation>>()
+                    .for_each(|operations| {
+                        let mut ring = Ring::with_capacity(RING_CAPACITY);
+                        let mut vec = Vec::with_capacity(RING_CAPACITY);
+
+                        for operation in operations {
+                            match operation {
+                                $operation::Clear => {
+                                    ring.test_clear();
+                                    vec.test_clear();
+                                }
+
+                                $operation::Trim(len) => {
+                                    ring.test_trim(len);
+                                    vec.test_trim(len);
+                                }
+
+                                $operation::Push(record) => {
+                                    ring.test_push(record);
+                                    vec.test_push(record);
+                                }
+
+                                $operation::Extend(records) => {
+                                    ring.test_extend_slice(records);
+                                    vec.test_extend_slice(records);
+                                }
+                            }
+
+                            assert_eq!(ring.test_records(), vec.test_records());
                         }
-
-                        Operation::Trim(len) => {
-                            ring.test_trim(len);
-                            vec.test_trim(len);
-                        }
-
-                        Operation::Push(record) => {
-                            ring.test_push(record);
-                            vec.test_push(record);
-                        }
-
-                        Operation::Extend(records) => {
-                            ring.test_extend_slice(records);
-                            vec.test_extend_slice(records);
-                        }
-                    }
-
-                    assert_eq!(ring.test_records(), vec.test_records());
-                }
-            })
+                    })
+            }
+        };
     }
+
+    state_machine_test!(state_machine_u8, OperationU8, u8);
+    state_machine_test!(state_machine_u16, OperationU16, u16);
+    state_machine_test!(state_machine_u32, OperationU32, u32);
+    state_machine_test!(state_machine_u64, OperationU64, u64);
+    state_machine_test!(state_machine_u128, OperationU128, u128);
+    state_machine_test!(state_machine_usize, OperationUsize, usize);
+
+    state_machine_test!(state_machine_i8, OperationI8, i8);
+    state_machine_test!(state_machine_i16, OperationI16, i16);
+    state_machine_test!(state_machine_i32, OperationI32, i32);
+    state_machine_test!(state_machine_i64, OperationI64, i64);
+    state_machine_test!(state_machine_i128, OperationI128, i128);
+    state_machine_test!(state_machine_isize, OperationIsize, isize);
+
+    // FIXME: We need Eq for testing for equality.
+    // state_machine_test!(state_machine_f32, OperationF32, f32);
+    // state_machine_test!(state_machine_f64, OperationF64, f64);
 }
