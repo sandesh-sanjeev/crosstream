@@ -3,7 +3,6 @@
 use crate::Record;
 use memmap2::{MmapMut, MmapOptions};
 use std::cmp::min;
-use std::io;
 use std::marker::PhantomData;
 
 /// Type alias for a [`Segment`] backed by a [`VecStorage`].
@@ -209,36 +208,17 @@ pub struct VecStorage<T>(Vec<T>);
 impl<T: Record + Copy> VecSegment<T> {
     /// Create a new instance of Segment using [`Vec`] for memory.
     ///
-    /// * TODO: Add support for huge pages.
-    ///
-    /// Note that this variant panics when memory cannot be allocated.
-    /// For a non-panicking alternative, use [`Segment::try_with_capacity`].
-    ///
     /// # Arguments
     ///
     /// * `capacity` - Maximum number of elements this segment can accommodate.
+    /// * `trimmer` - Trimmer to use when appending records into segment.
     pub fn with_capacity(capacity: usize, trimmer: Trimmer) -> VecSegment<T> {
-        match Self::try_with_capacity(capacity, trimmer) {
-            Ok(segment) => segment,
-            Err(e) => panic!("Error allocating memory for segment: {e}"),
-        }
-    }
-
-    /// Create a new instance of Segment using [`Vec`] for memory.
-    ///
-    /// * Returns an I/O error if memory allocation fails.
-    /// * TODO: Add support for huge pages.
-    ///
-    /// # Arguments
-    ///
-    /// * `capacity` - Maximum number of elements this segment can accommodate.
-    pub fn try_with_capacity(capacity: usize, trimmer: Trimmer) -> io::Result<VecSegment<T>> {
-        Ok(Self {
+        Self {
             length: 0,
             capacity,
             trimmer,
             storage: VecStorage(Vec::with_capacity(capacity)),
-        })
+        }
     }
 }
 
@@ -278,35 +258,19 @@ impl<T: Record + Copy> MmapSegment<T> {
     ///
     /// * TODO: Add support for huge pages.
     ///
-    /// Note that this variant panics when memory cannot be allocated.
-    /// For a non-panicking alternative, use [`Segment::try_with_capacity`].
-    ///
     /// # Arguments
     ///
     /// * `capacity` - Maximum number of elements this segment can accommodate.
+    /// * `trimmer` - Trimmer to use when appending records into segment.
     pub fn with_capacity(capacity: usize, trimmer: Trimmer) -> MmapSegment<T> {
-        match Self::try_with_capacity(capacity, trimmer) {
-            Ok(segment) => segment,
-            Err(e) => panic!("Error allocating memory for segment: {e}"),
-        }
-    }
-
-    /// Create a new instance of Segment using [`MmapMut`] for memory.
-    ///
-    /// * Returns an I/O error if memory allocation fails.
-    /// * TODO: Add support for huge pages.
-    ///
-    /// # Arguments
-    ///
-    /// * `capacity` - Maximum number of elements this segment can accommodate.
-    pub fn try_with_capacity(capacity: usize, trimmer: Trimmer) -> io::Result<MmapSegment<T>> {
         let mmap = MmapOptions::new()
             // .huge(None) TODO: Enable support for huge pages.
             .len(capacity * T::size())
             .populate()
-            .map_anon()?;
+            .map_anon()
+            .expect("Cannot mmap capacity");
 
-        Ok(Self {
+        Self {
             length: 0,
             trimmer,
             capacity,
@@ -314,7 +278,7 @@ impl<T: Record + Copy> MmapSegment<T> {
                 mmap,
                 phantom: PhantomData,
             },
-        })
+        }
     }
 }
 
