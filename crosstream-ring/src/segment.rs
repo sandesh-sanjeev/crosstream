@@ -4,7 +4,13 @@ use crate::Record;
 use memmap2::{MmapMut, MmapOptions};
 use std::cmp::min;
 use std::io;
-use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
+use std::marker::PhantomData;
+
+/// Type alias for a [`Segment`] backed by a [`VecStorage`].
+pub type VecSegment<T> = Segment<VecStorage<T>>;
+
+/// Type alias for a [`Segment`] backed by a [`MmapStorage`].
+pub type MmapSegment<T> = Segment<MmapStorage<T>>;
 
 /// Segment is a container of contiguous elements.
 ///
@@ -18,82 +24,42 @@ use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
 /// * As of now (and probably forever) only supports elements that implement [`Record`].
 /// * Performance of `Segment` operations is virtually identical to that of [`Vec`].
 #[derive(Debug)]
-pub struct Segment<T> {
-    len: usize,
-    cap: usize,
-    memory: MmapMut,
-    phantom: PhantomData<T>,
+pub struct Segment<S: Storage> {
+    length: usize,
+    capacity: usize,
+    storage: S,
+    trimmer: Trimmer,
 }
 
-impl<T: Record> Segment<T> {
-    /// Create a new instance of Segment.
-    ///
-    /// * TODO: Add support for huge pages.
-    ///
-    /// Note that this variant panics when memory cannot be allocated via mmap.
-    /// For a non-panicking alternative, use [`Segment::try_with_capacity`].
-    ///
-    /// # Arguments
-    ///
-    /// * `capacity` - Maximum number of elements this ring can accommodate.
-    pub fn with_capacity(capacity: usize) -> Self {
-        match Self::try_with_capacity(capacity) {
-            Ok(ring) => ring,
-            Err(e) => panic!("Error allocating memory for ring: {e}"),
-        }
-    }
-
-    /// Create a new instance of Segment.
-    ///
-    /// * Returns an I/O error if memory allocation fails.
-    /// * TODO: Add support for huge pages.
-    ///
-    /// # Arguments
-    ///
-    /// * `capacity` - Maximum number of elements this ring can accommodate.
-    pub fn try_with_capacity(capacity: usize) -> io::Result<Self> {
-        let mmap = MmapOptions::new()
-            // .huge(None) TODO: Enable support for huge pages.
-            .len(capacity * T::size())
-            .populate()
-            .map_anon()?;
-
-        Ok(Self {
-            len: 0,
-            cap: capacity,
-            memory: mmap,
-            phantom: PhantomData,
-        })
-    }
-
+impl<S: Storage> Segment<S> {
     /// Number of records currently stored in this Segment.
     #[inline]
     pub fn len(&self) -> usize {
-        self.len
+        self.length
     }
 
     /// Maximum number of records that can be stored in this Segment.
     #[inline]
     pub fn capacity(&self) -> usize {
-        self.cap
+        self.capacity
     }
 
     /// Number of records that can be appended to this Segment without overflow.
     #[inline]
     pub fn remaining(&self) -> usize {
-        self.cap - self.len
+        self.capacity - self.length
     }
 
     /// true if this Segment has no records, false otherwise.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.length == 0
     }
 
     /// true if this Segment is at capacity, false otherwise.
     #[inline]
     pub fn is_full(&self) -> bool {
-        self.cap == self.len
+        self.capacity == self.length
     }
 
     /// Trim first N records from this Segment.
@@ -117,14 +83,14 @@ impl<T: Record> Segment<T> {
         }
 
         // Optimization if all the records can be trimmed.
-        if len >= self.len {
+        if len >= self.length {
             self.clear();
             return;
         }
 
         // We need to left shift some bytes.
-        self.memory.copy_within((len * T::size()).., 0);
-        self.len -= len;
+        self.storage.trim(len);
+        self.length -= len;
     }
 
     /// Append a record into this Segment.
@@ -136,21 +102,23 @@ impl<T: Record> Segment<T> {
     ///
     /// * `record` - Record to append.
     #[inline]
-    pub fn push(&mut self, record: T) -> bool {
-        // Early return when there is no capacity for the record.
+    pub fn push(&mut self, record: S::Record) -> Option<S::Record> {
+        // If we don't have enough capacity, attempt to trim records.
         if self.remaining() == 0 {
-            return false;
+            self.run_trimmer();
+        }
+
+        // If we still don't have enough space, there is nothing else to do.
+        if self.remaining() == 0 {
+            return Some(record);
         }
 
         // Copy record bytes to internal buffers.
-        let offset = self.len * T::size();
-        let src = T::to_bytes(record.borrow());
-        let dst = &mut self.memory[offset..(offset + src.len())];
-        dst.copy_from_slice(src);
-        self.len += 1;
+        self.storage.extend(self.length, &[record]);
+        self.length += 1;
 
-        // Indicate that record was accepted.
-        true
+        // The record was consumed, nothing to return.
+        None
     }
 
     /// Append a slice of records into this Segment.
@@ -162,7 +130,12 @@ impl<T: Record> Segment<T> {
     ///
     /// * `records` - Records to append.
     #[inline]
-    pub fn extend_from_slice<'a>(&mut self, records: &'a [T]) -> &'a [T] {
+    pub fn extend_from_slice<'a>(&mut self, records: &'a [S::Record]) -> &'a [S::Record] {
+        // If we don't have enough capacity, attempt to trim records.
+        if self.remaining() < records.len() {
+            self.run_trimmer();
+        }
+
         // Safety: index is guaranteed to be <= records.len() due to the conditional check.
         let (to_append, to_reject) = unsafe {
             let index = min(records.len(), self.remaining());
@@ -175,11 +148,8 @@ impl<T: Record> Segment<T> {
         }
 
         // Copy record bytes to internal buffers.
-        let offset = self.len * T::size();
-        let src = T::to_bytes_slice(to_append);
-        let dst = &mut self.memory[offset..(offset + src.len())];
-        dst.copy_from_slice(src);
-        self.len += to_append.len();
+        self.storage.extend(self.length, to_append);
+        self.length += to_append.len();
 
         // Return all the rejected records.
         to_reject
@@ -190,65 +160,171 @@ impl<T: Record> Segment<T> {
     /// * This is a constant time O(1) operation.
     #[inline]
     pub fn clear(&mut self) {
-        self.len = 0;
+        self.storage.clear();
+        self.length = 0;
     }
-}
 
-impl<T: Record> Deref for Segment<T> {
-    type Target = [T];
+    /// Returns reference to all the records in a segment.
+    #[inline]
+    pub fn records(&self) -> &[S::Record] {
+        self.storage.records(self.length)
+    }
 
     #[inline]
-    fn deref(&self) -> &Self::Target {
-        let end = self.len * T::size();
-        T::from_bytes_slice(&self.memory[..end])
+    fn run_trimmer(&mut self) {
+        let trim_len = match self.trimmer {
+            Trimmer::Nothing => 0,
+            Trimmer::Trim(len) => len,
+        };
+
+        if trim_len > 0 {
+            self.trim(trim_len);
+        }
     }
 }
 
 /// Storage engine that backs a [`Segment`].
-trait Storage<T: Record> {
+pub trait Storage {
+    type Record: Record;
+
+    /// Trim first len records from storage.
     fn trim(&mut self, len: usize);
 
-    fn extend(&mut self, len: usize, records: &[T]);
+    /// Append some records into storage.
+    fn extend(&mut self, len: usize, records: &[Self::Record]);
 
+    /// Clear all records from storage.
     fn clear(&mut self);
 
-    fn records(&self, len: usize) -> &[T];
+    /// Return reference to all records in storage.
+    fn records(&self, len: usize) -> &[Self::Record];
 }
 
-/// Storage engine for [`Segment`] that uses heap allocated  mmap for storage.
+/// Storage engine for [`Segment`] that uses [`Vec`] for memory.
 #[derive(Debug)]
 pub struct VecStorage<T>(Vec<T>);
 
-impl<T: Record + Copy> Storage<T> for VecStorage<T> {
+impl<T: Record + Copy> VecSegment<T> {
+    /// Create a new instance of Segment using [`Vec`] for memory.
+    ///
+    /// * TODO: Add support for huge pages.
+    ///
+    /// Note that this variant panics when memory cannot be allocated.
+    /// For a non-panicking alternative, use [`Segment::try_with_capacity`].
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - Maximum number of elements this ring can accommodate.
+    pub fn with_capacity(capacity: usize, trimmer: Trimmer) -> VecSegment<T> {
+        match Self::try_with_capacity(capacity, trimmer) {
+            Ok(ring) => ring,
+            Err(e) => panic!("Error allocating memory for ring: {e}"),
+        }
+    }
+
+    /// Create a new instance of Segment using [`Vec`] for memory.
+    ///
+    /// * Returns an I/O error if memory allocation fails.
+    /// * TODO: Add support for huge pages.
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - Maximum number of elements this ring can accommodate.
+    pub fn try_with_capacity(capacity: usize, trimmer: Trimmer) -> io::Result<VecSegment<T>> {
+        Ok(Self {
+            length: 0,
+            capacity,
+            trimmer,
+            storage: VecStorage(Vec::with_capacity(capacity)),
+        })
+    }
+}
+
+impl<T: Record + Copy> Storage for VecStorage<T> {
+    type Record = T;
+
+    #[inline]
     fn trim(&mut self, len: usize) {
         self.0.drain(..min(len, self.0.len()));
     }
 
+    #[inline]
     fn extend(&mut self, _len: usize, records: &[T]) {
         self.0.extend_from_slice(records);
     }
 
+    #[inline]
     fn clear(&mut self) {
         self.0.clear();
     }
 
+    #[inline]
     fn records(&self, _len: usize) -> &[T] {
         &self.0
     }
 }
 
-/// Storage engine for [`Segment`] that uses anonymous mmap for storage.
+/// Storage engine for [`Segment`] that uses [`MmapMut`] for memory.
 #[derive(Debug)]
 pub struct MmapStorage<T> {
     mmap: MmapMut,
     phantom: PhantomData<T>,
 }
 
-impl<T: Record> Storage<T> for MmapStorage<T> {
+impl<T: Record + Copy> MmapSegment<T> {
+    /// Create a new instance of Segment using [`MmapMut`] for memory.
+    ///
+    /// * TODO: Add support for huge pages.
+    ///
+    /// Note that this variant panics when memory cannot be allocated.
+    /// For a non-panicking alternative, use [`Segment::try_with_capacity`].
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - Maximum number of elements this ring can accommodate.
+    pub fn with_capacity(capacity: usize, trimmer: Trimmer) -> MmapSegment<T> {
+        match Self::try_with_capacity(capacity, trimmer) {
+            Ok(ring) => ring,
+            Err(e) => panic!("Error allocating memory for ring: {e}"),
+        }
+    }
+
+    /// Create a new instance of Segment using [`MmapMut`] for memory.
+    ///
+    /// * Returns an I/O error if memory allocation fails.
+    /// * TODO: Add support for huge pages.
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - Maximum number of elements this ring can accommodate.
+    pub fn try_with_capacity(capacity: usize, trimmer: Trimmer) -> io::Result<MmapSegment<T>> {
+        let mmap = MmapOptions::new()
+            // .huge(None) TODO: Enable support for huge pages.
+            .len(capacity * T::size())
+            .populate()
+            .map_anon()?;
+
+        Ok(Self {
+            length: 0,
+            trimmer,
+            capacity,
+            storage: MmapStorage {
+                mmap,
+                phantom: PhantomData,
+            },
+        })
+    }
+}
+
+impl<T: Record> Storage for MmapStorage<T> {
+    type Record = T;
+
+    #[inline]
     fn trim(&mut self, len: usize) {
         self.mmap.copy_within((len * T::size()).., 0);
     }
 
+    #[inline]
     fn extend(&mut self, len: usize, records: &[T]) {
         let offset = len * T::size();
         let src = T::to_bytes_slice(records);
@@ -256,171 +332,99 @@ impl<T: Record> Storage<T> for MmapStorage<T> {
         dst.copy_from_slice(src);
     }
 
+    #[inline]
     fn clear(&mut self) {}
 
+    #[inline]
     fn records(&self, len: usize) -> &[T] {
         let end = len * T::size();
         T::from_bytes_slice(&self.mmap[..end])
     }
 }
 
+/// Strategy used to trim records during appends into a [`Segment`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(test, derive(bolero::generator::TypeGenerator))]
+pub enum Trimmer {
+    /// When an append operation occurs and there isn't sufficient capacity
+    /// to accommodate records, this does nothing. Meaning one or more records
+    /// might be rejected from the segment.
+    Nothing,
+
+    /// When an append operation occurs and there isn't sufficient capacity
+    /// to accommodate records, this trims first N records from the segment.
+    /// However records will  be rejected if N < number of records being appended.
+    Trim(usize),
+}
+
 #[cfg(test)]
 mod tests {
+    use std::fmt::Debug;
+
     use super::*;
     use bolero::{check, generator::*};
 
-    /// Maximum capacity of the test ring buffer.
     const RING_CAPACITY: usize = 1024 * 1024;
 
-    /// Methods of a ring buffer being tested.
-    trait Ring<T> {
-        /// Clear ring buffer.
-        fn test_clear(&mut self);
-
-        /// Trim some number of records from front of the ring buffer.
-        fn test_trim(&mut self, len: &u8);
-
-        /// Append a record into the ring buffer.
-        fn test_push(&mut self, record: &T);
-
-        /// Append a slice of records into the ring buffer.
-        fn test_extend_slice(&mut self, records: &[T]);
-
-        /// Get a reference to records held in the ring buffer.
-        fn test_records(&self) -> &[T];
-    }
-
-    // Reference implementation of ring buffer using a Vec.
-    impl<T: Copy> Ring<T> for Vec<T> {
-        fn test_clear(&mut self) {
-            self.clear();
-        }
-
-        fn test_trim(&mut self, len: &u8) {
-            self.drain(..min(*len as usize, self.len()));
-        }
-
-        fn test_push(&mut self, record: &T) {
-            if self.len() >= RING_CAPACITY {
-                self.remove(0);
-            }
-
-            self.push(*record);
-        }
-
-        fn test_extend_slice(&mut self, records: &[T]) {
-            if records.len() > RING_CAPACITY {
-                return;
-            }
-
-            let remaining = RING_CAPACITY - records.len();
-            if remaining < records.len() {
-                self.drain(..(records.len() - remaining));
-            }
-
-            self.extend_from_slice(records);
-        }
-
-        fn test_records(&self) -> &[T] {
-            &self
-        }
-    }
-
-    // Implementation of ring buffer using `Ring`.
-    impl<T: Record + Copy> Ring<T> for Segment<T> {
-        fn test_clear(&mut self) {
-            self.clear();
-        }
-
-        fn test_trim(&mut self, len: &u8) {
-            self.trim(*len as usize);
-        }
-
-        fn test_push(&mut self, record: &T) {
-            if self.is_full() {
-                self.trim(1);
-            }
-
-            self.push(*record);
-        }
-
-        fn test_extend_slice(&mut self, records: &[T]) {
-            if records.len() > RING_CAPACITY {
-                return;
-            }
-
-            let remaining = self.remaining();
-            if remaining < records.len() {
-                self.trim(records.len() - remaining);
-            }
-
-            self.extend_from_slice(records);
-        }
-
-        fn test_records(&self) -> &[T] {
-            &self
-        }
+    #[derive(Debug, TypeGenerator)]
+    enum Operation<T: TypeGenerator + Debug> {
+        Clear,
+        Trim(u8),
+        Push(T),
+        Extend(Vec<T>),
     }
 
     macro_rules! state_machine_test {
-        ($name:ident, $operation:ident, $num:ty) => {
-            #[derive(Debug, TypeGenerator)]
-            enum $operation {
-                Clear,
-                Trim(u8),
-                Push($num),
-                Extend(Vec<$num>),
-            }
-
+        ($name:ident,$num:ty) => {
             #[test]
             fn $name() {
                 check!()
-                    .with_type::<Vec<$operation>>()
-                    .for_each(|operations| {
-                        let mut ring = Segment::with_capacity(RING_CAPACITY);
-                        let mut vec = Vec::with_capacity(RING_CAPACITY);
+                    .with_type::<(Vec<Operation<$num>>, Trimmer)>()
+                    .for_each(|(operations, trimmer)| {
+                        let mut mmap = MmapSegment::with_capacity(RING_CAPACITY, *trimmer);
+                        let mut vec = VecSegment::with_capacity(RING_CAPACITY, *trimmer);
 
                         for operation in operations {
                             match operation {
-                                $operation::Clear => {
-                                    ring.test_clear();
-                                    vec.test_clear();
+                                Operation::Clear => {
+                                    mmap.clear();
+                                    vec.clear();
                                 }
 
-                                $operation::Trim(len) => {
-                                    ring.test_trim(len);
-                                    vec.test_trim(len);
+                                Operation::Trim(len) => {
+                                    mmap.trim(*len as usize);
+                                    vec.trim(*len as usize);
                                 }
 
-                                $operation::Push(record) => {
-                                    ring.test_push(record);
-                                    vec.test_push(record);
+                                Operation::Push(record) => {
+                                    mmap.push(*record);
+                                    vec.push(*record);
                                 }
 
-                                $operation::Extend(records) => {
-                                    ring.test_extend_slice(records);
-                                    vec.test_extend_slice(records);
+                                Operation::Extend(records) => {
+                                    mmap.extend_from_slice(records);
+                                    vec.extend_from_slice(records);
                                 }
                             }
 
-                            assert_eq!(ring.test_records(), vec.test_records());
+                            assert_eq!(mmap.records(), vec.records());
                         }
                     })
             }
         };
     }
 
-    state_machine_test!(state_machine_u8, OperationU8, u8);
-    state_machine_test!(state_machine_u16, OperationU16, u16);
-    state_machine_test!(state_machine_u32, OperationU32, u32);
-    state_machine_test!(state_machine_u64, OperationU64, u64);
-    state_machine_test!(state_machine_u128, OperationU128, u128);
-    state_machine_test!(state_machine_usize, OperationUsize, usize);
+    state_machine_test!(state_machine_u8, u8);
+    state_machine_test!(state_machine_u16, u16);
+    state_machine_test!(state_machine_u32, u32);
+    state_machine_test!(state_machine_u64, u64);
+    state_machine_test!(state_machine_u128, u128);
+    state_machine_test!(state_machine_usize, usize);
 
-    state_machine_test!(state_machine_i8, OperationI8, i8);
-    state_machine_test!(state_machine_i16, OperationI16, i16);
-    state_machine_test!(state_machine_i32, OperationI32, i32);
-    state_machine_test!(state_machine_i64, OperationI64, i64);
-    state_machine_test!(state_machine_i128, OperationI128, i128);
-    state_machine_test!(state_machine_isize, OperationIsize, isize);
+    state_machine_test!(state_machine_i8, i8);
+    state_machine_test!(state_machine_i16, i16);
+    state_machine_test!(state_machine_i32, i32);
+    state_machine_test!(state_machine_i64, i64);
+    state_machine_test!(state_machine_i128, i128);
+    state_machine_test!(state_machine_isize, isize);
 }
