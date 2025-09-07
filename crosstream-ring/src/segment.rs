@@ -365,8 +365,8 @@ mod tests {
     use bolero::{check, generator::*};
     use std::fmt::Debug;
 
-    // Anout 1 MB worth of memory.
-    const SEG_MEMORY: usize = 1024 * 1024;
+    // Anout 100 MB worth of memory.
+    const SEG_MEMORY: usize = 100 * 1024 * 1024;
 
     #[derive(Debug, TypeGenerator)]
     enum Operation<T: TypeGenerator + Debug> {
