@@ -1,4 +1,4 @@
-//! Definition of storage engine that backs a Ring.
+//! Definition of a container of contiguous elements.
 
 use crate::Record;
 use memmap2::{MmapMut, MmapOptions};
@@ -23,6 +23,7 @@ pub type MmapSegment<T> = Segment<MmapStorage<T>>;
 /// * There can be no gaps between elements, push/remove from back, but only remove from front.
 /// * As of now (and probably forever) only supports elements that implement [`Record`].
 /// * Performance of `Segment` operations is virtually identical to that of [`Vec`].
+/// * Provides two storage engines: [`VecStorage`] and [`MmapStorage`].
 #[derive(Debug)]
 pub struct Segment<S: Storage> {
     length: usize,
@@ -215,11 +216,11 @@ impl<T: Record + Copy> VecSegment<T> {
     ///
     /// # Arguments
     ///
-    /// * `capacity` - Maximum number of elements this ring can accommodate.
+    /// * `capacity` - Maximum number of elements this segment can accommodate.
     pub fn with_capacity(capacity: usize, trimmer: Trimmer) -> VecSegment<T> {
         match Self::try_with_capacity(capacity, trimmer) {
-            Ok(ring) => ring,
-            Err(e) => panic!("Error allocating memory for ring: {e}"),
+            Ok(segment) => segment,
+            Err(e) => panic!("Error allocating memory for segment: {e}"),
         }
     }
 
@@ -230,7 +231,7 @@ impl<T: Record + Copy> VecSegment<T> {
     ///
     /// # Arguments
     ///
-    /// * `capacity` - Maximum number of elements this ring can accommodate.
+    /// * `capacity` - Maximum number of elements this segment can accommodate.
     pub fn try_with_capacity(capacity: usize, trimmer: Trimmer) -> io::Result<VecSegment<T>> {
         Ok(Self {
             length: 0,
@@ -282,11 +283,11 @@ impl<T: Record + Copy> MmapSegment<T> {
     ///
     /// # Arguments
     ///
-    /// * `capacity` - Maximum number of elements this ring can accommodate.
+    /// * `capacity` - Maximum number of elements this segment can accommodate.
     pub fn with_capacity(capacity: usize, trimmer: Trimmer) -> MmapSegment<T> {
         match Self::try_with_capacity(capacity, trimmer) {
-            Ok(ring) => ring,
-            Err(e) => panic!("Error allocating memory for ring: {e}"),
+            Ok(segment) => segment,
+            Err(e) => panic!("Error allocating memory for segment: {e}"),
         }
     }
 
@@ -297,7 +298,7 @@ impl<T: Record + Copy> MmapSegment<T> {
     ///
     /// # Arguments
     ///
-    /// * `capacity` - Maximum number of elements this ring can accommodate.
+    /// * `capacity` - Maximum number of elements this segment can accommodate.
     pub fn try_with_capacity(capacity: usize, trimmer: Trimmer) -> io::Result<MmapSegment<T>> {
         let mmap = MmapOptions::new()
             // .huge(None) TODO: Enable support for huge pages.
@@ -360,12 +361,11 @@ pub enum Trimmer {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Debug;
-
     use super::*;
     use bolero::{check, generator::*};
+    use std::fmt::Debug;
 
-    const RING_CAPACITY: usize = 1024 * 1024;
+    const SEG_CAPACITY: usize = 1024 * 1024;
 
     #[derive(Debug, TypeGenerator)]
     enum Operation<T: TypeGenerator + Debug> {
@@ -382,8 +382,8 @@ mod tests {
                 check!()
                     .with_type::<(Vec<Operation<$num>>, Trimmer)>()
                     .for_each(|(operations, trimmer)| {
-                        let mut mmap = MmapSegment::with_capacity(RING_CAPACITY, *trimmer);
-                        let mut vec = VecSegment::with_capacity(RING_CAPACITY, *trimmer);
+                        let mut mmap = MmapSegment::with_capacity(SEG_CAPACITY, *trimmer);
+                        let mut vec = VecSegment::with_capacity(SEG_CAPACITY, *trimmer);
 
                         for operation in operations {
                             match operation {

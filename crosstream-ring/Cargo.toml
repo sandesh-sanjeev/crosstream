@@ -12,7 +12,11 @@ harness = false
 memmap2 = "0.9"
 
 # For byte to record transmutations.
-bytemuck = { version = "1.23", features = ["derive", "must_cast"] }
+bytemuck = { version = "1.23", features = [
+    "derive",
+    "must_cast",
+    "min_const_generics",
+] }
 
 [dev-dependencies]
 # For random number generator in tests.

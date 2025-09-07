@@ -16,7 +16,7 @@ criterion_group!(
     config = Criterion::default()
         .warm_up_time(Duration::from_secs(5))
         .measurement_time(Duration::from_secs(30));
-    targets = run_ring_benchmark_u8, run_vec_benchmark_u8,
+    targets = run_mmap_benchmark_u8, run_vec_benchmark_u8,
 );
 
 criterion_group!(
@@ -24,7 +24,7 @@ criterion_group!(
     config = Criterion::default()
         .warm_up_time(Duration::from_secs(5))
         .measurement_time(Duration::from_secs(30));
-    targets = run_ring_benchmark_u16, run_vec_benchmark_u16,
+    targets = run_mmap_benchmark_u16, run_vec_benchmark_u16,
 );
 
 criterion_group!(
@@ -32,7 +32,7 @@ criterion_group!(
     config = Criterion::default()
         .warm_up_time(Duration::from_secs(5))
         .measurement_time(Duration::from_secs(30));
-    targets = run_ring_benchmark_u32, run_vec_benchmark_u32,
+    targets = run_mmap_benchmark_u32, run_vec_benchmark_u32,
 );
 
 criterion_group!(
@@ -40,7 +40,7 @@ criterion_group!(
     config = Criterion::default()
         .warm_up_time(Duration::from_secs(5))
         .measurement_time(Duration::from_secs(30));
-    targets = run_ring_benchmark_u64, run_vec_benchmark_u64,
+    targets = run_mmap_benchmark_u64, run_vec_benchmark_u64,
 );
 
 criterion_group!(
@@ -48,7 +48,7 @@ criterion_group!(
     config = Criterion::default()
         .warm_up_time(Duration::from_secs(5))
         .measurement_time(Duration::from_secs(30));
-    targets = run_ring_benchmark_u128, run_vec_benchmark_u128,
+    targets = run_mmap_benchmark_u128, run_vec_benchmark_u128,
 );
 
 criterion_group!(
@@ -56,7 +56,7 @@ criterion_group!(
     config = Criterion::default()
         .warm_up_time(Duration::from_secs(5))
         .measurement_time(Duration::from_secs(30));
-    targets = run_ring_benchmark_i8, run_vec_benchmark_i8,
+    targets = run_mmap_benchmark_i8, run_vec_benchmark_i8,
 );
 
 criterion_group!(
@@ -64,7 +64,7 @@ criterion_group!(
     config = Criterion::default()
         .warm_up_time(Duration::from_secs(5))
         .measurement_time(Duration::from_secs(30));
-    targets = run_ring_benchmark_i16, run_vec_benchmark_i16,
+    targets = run_mmap_benchmark_i16, run_vec_benchmark_i16,
 );
 
 criterion_group!(
@@ -72,7 +72,7 @@ criterion_group!(
     config = Criterion::default()
         .warm_up_time(Duration::from_secs(5))
         .measurement_time(Duration::from_secs(30));
-    targets = run_ring_benchmark_i32, run_vec_benchmark_i32,
+    targets = run_mmap_benchmark_i32, run_vec_benchmark_i32,
 );
 
 criterion_group!(
@@ -80,7 +80,7 @@ criterion_group!(
     config = Criterion::default()
         .warm_up_time(Duration::from_secs(5))
         .measurement_time(Duration::from_secs(30));
-    targets = run_ring_benchmark_i64, run_vec_benchmark_i64,
+    targets = run_mmap_benchmark_i64, run_vec_benchmark_i64,
 );
 
 criterion_group!(
@@ -88,7 +88,7 @@ criterion_group!(
     config = Criterion::default()
         .warm_up_time(Duration::from_secs(5))
         .measurement_time(Duration::from_secs(30));
-    targets = run_ring_benchmark_i128, run_vec_benchmark_i128,
+    targets = run_mmap_benchmark_i128, run_vec_benchmark_i128,
 );
 
 criterion_group!(
@@ -96,7 +96,7 @@ criterion_group!(
     config = Criterion::default()
         .warm_up_time(Duration::from_secs(5))
         .measurement_time(Duration::from_secs(30));
-    targets = run_ring_benchmark_f32, run_vec_benchmark_f32,
+    targets = run_mmap_benchmark_f32, run_vec_benchmark_f32,
 );
 
 criterion_group!(
@@ -104,7 +104,7 @@ criterion_group!(
     config = Criterion::default()
         .warm_up_time(Duration::from_secs(5))
         .measurement_time(Duration::from_secs(30));
-    targets = run_ring_benchmark_f64, run_vec_benchmark_f64,
+    targets = run_mmap_benchmark_f64, run_vec_benchmark_f64,
 );
 
 macro_rules! run_benchmark {
@@ -165,38 +165,38 @@ macro_rules! run_benchmark {
     };
 }
 
-run_benchmark!(run_ring_benchmark_u8, MmapSegment<u8>, u8, "Ring");
+run_benchmark!(run_mmap_benchmark_u8, MmapSegment<u8>, u8, "Mmap");
 run_benchmark!(run_vec_benchmark_u8, VecSegment<u8>, u8, "Vec");
 
-run_benchmark!(run_ring_benchmark_u16, MmapSegment<u16>, u16, "Ring");
+run_benchmark!(run_mmap_benchmark_u16, MmapSegment<u16>, u16, "Mmap");
 run_benchmark!(run_vec_benchmark_u16, VecSegment<u16>, u16, "Vec");
 
-run_benchmark!(run_ring_benchmark_u32, MmapSegment<u32>, u32, "Ring");
+run_benchmark!(run_mmap_benchmark_u32, MmapSegment<u32>, u32, "Mmap");
 run_benchmark!(run_vec_benchmark_u32, VecSegment<u32>, u32, "Vec");
 
-run_benchmark!(run_ring_benchmark_u64, MmapSegment<u64>, u64, "Ring");
+run_benchmark!(run_mmap_benchmark_u64, MmapSegment<u64>, u64, "Mmap");
 run_benchmark!(run_vec_benchmark_u64, VecSegment<u64>, u64, "Vec");
 
-run_benchmark!(run_ring_benchmark_u128, MmapSegment<u128>, u128, "Ring");
+run_benchmark!(run_mmap_benchmark_u128, MmapSegment<u128>, u128, "Mmap");
 run_benchmark!(run_vec_benchmark_u128, VecSegment<u128>, u128, "Vec");
 
-run_benchmark!(run_ring_benchmark_i8, MmapSegment<i8>, i8, "Ring");
+run_benchmark!(run_mmap_benchmark_i8, MmapSegment<i8>, i8, "Mmap");
 run_benchmark!(run_vec_benchmark_i8, VecSegment<i8>, i8, "Vec");
 
-run_benchmark!(run_ring_benchmark_i16, MmapSegment<i16>, i16, "Ring");
+run_benchmark!(run_mmap_benchmark_i16, MmapSegment<i16>, i16, "Mmap");
 run_benchmark!(run_vec_benchmark_i16, VecSegment<i16>, i16, "Vec");
 
-run_benchmark!(run_ring_benchmark_i32, MmapSegment<i32>, i32, "Ring");
+run_benchmark!(run_mmap_benchmark_i32, MmapSegment<i32>, i32, "Mmap");
 run_benchmark!(run_vec_benchmark_i32, VecSegment<i32>, i32, "Vec");
 
-run_benchmark!(run_ring_benchmark_i64, MmapSegment<i64>, i64, "Ring");
+run_benchmark!(run_mmap_benchmark_i64, MmapSegment<i64>, i64, "Mmap");
 run_benchmark!(run_vec_benchmark_i64, VecSegment<i64>, i64, "Vec");
 
-run_benchmark!(run_ring_benchmark_i128, MmapSegment<i128>, i128, "Ring");
+run_benchmark!(run_mmap_benchmark_i128, MmapSegment<i128>, i128, "Mmap");
 run_benchmark!(run_vec_benchmark_i128, VecSegment<i128>, i128, "Vec");
 
-run_benchmark!(run_ring_benchmark_f32, MmapSegment<f32>, f32, "Ring");
+run_benchmark!(run_mmap_benchmark_f32, MmapSegment<f32>, f32, "Mmap");
 run_benchmark!(run_vec_benchmark_f32, VecSegment<f32>, f32, "Vec");
 
-run_benchmark!(run_ring_benchmark_f64, MmapSegment<f64>, f64, "Ring");
+run_benchmark!(run_mmap_benchmark_f64, MmapSegment<f64>, f64, "Mmap");
 run_benchmark!(run_vec_benchmark_f64, VecSegment<f64>, f64, "Vec");
