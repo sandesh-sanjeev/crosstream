@@ -3,10 +3,6 @@ name = "crosstream-ring"
 version = "0.1.0"
 edition = "2024"
 
-[[bench]]
-name = "segment"
-harness = false
-
 [dependencies]
 # For allocating off-heap memory.
 memmap2 = "0.9"
