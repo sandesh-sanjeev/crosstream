@@ -58,6 +58,71 @@ impl<T: AnyBitPattern + NoUninit> Record for T {
     }
 }
 
+#[cfg(kani)]
+mod verification {
+    use super::*;
+    use pastey::paste;
+
+    macro_rules! round_trip_proof {
+        ($($type:ty),*) => {
+            paste! {
+                $(
+                    #[kani::proof]
+                    fn [<round_trip_ $type _proof>]() {
+                        let record: $type = kani::any();
+
+                        let bytes = $type::to_bytes(&record);
+                        assert_eq!($type::size(), bytes.len());
+
+                        let returned = $type::from_bytes(bytes);
+                        assert_eq!(&record, returned);
+                    }
+
+                    #[kani::proof]
+                    #[kani::unwind(256)]
+                    fn [<round_trip_ $type _slice_proof>]() {
+                        let records: Vec<$type> = kani::bounded_any::<_, 8>();
+
+                        let bytes = $type::to_bytes_slice(&records);
+                        assert_eq!($type::size() * records.len(), bytes.len());
+
+                        let returned = $type::from_bytes_slice(bytes);
+                        assert_eq!(&records, returned);
+                    }
+
+                    #[kani::proof]
+                    fn [<round_trip_ $type _array_proof>]() {
+                        let record: [$type; 3] = kani::any();
+
+                        let bytes = <[$type; 3]>::to_bytes(&record);
+                        assert_eq!(<[$type; 3]>::size(), bytes.len());
+
+                        let returned = <[$type; 3]>::from_bytes(bytes);
+                        assert_eq!(&record, returned);
+                    }
+
+                    #[kani::proof]
+                    #[kani::unwind(256)]
+                    fn [<round_trip_ $type _array_slice_proof>]() {
+                        let records: Vec<[$type; 3]> = kani::bounded_any::<_, 4>();
+
+                        let bytes = <[$type; 3]>::to_bytes_slice(&records);
+                        assert_eq!(<[$type; 3]>::size() * records.len(), bytes.len());
+
+                        let returned = <[$type; 3]>::from_bytes_slice(bytes);
+                        assert_eq!(&records, returned);
+                    }
+                )*
+            }
+        };
+    }
+
+    round_trip_proof!(
+        u8, u16, u32, u64, usize, u128, // Unsigned integers
+        i8, i16, i32, i64, isize, i128 // Signed integers
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -292,6 +292,7 @@ impl<T: Record> Storage for MmapStorage<T> {
 /// Strategy used to trim records during appends into a [`Segment`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub enum Trimmer {
     /// When an append operation occurs and there isn't sufficient capacity
     /// to accommodate records, this does nothing. Meaning one or more records
@@ -302,6 +303,138 @@ pub enum Trimmer {
     /// to accommodate records, this trims first N records from the segment.
     /// However records will  be rejected if N < number of records being appended.
     Trim(usize),
+}
+
+#[cfg(kani)]
+mod verification {
+    use super::*;
+
+    const CAPACITY: usize = 10;
+
+    #[kani::proof]
+    #[kani::unwind(512)]
+    fn push_proof() {
+        let mut segment = VecSegment::with_capacity(CAPACITY, Trimmer::Nothing);
+
+        // Test records.
+        assert!(segment.is_empty());
+        assert_eq!(CAPACITY, segment.capacity());
+        let records: [u64; CAPACITY] = kani::any();
+
+        // Write individual records.
+        assert_eq!(0, segment.len());
+        for record in &records {
+            assert!(segment.remaining() > 0);
+            assert!(segment.push(*record).is_none());
+            assert_eq!(&records[..segment.len()], segment.records());
+        }
+
+        // Make sure segment has all the records now.
+        assert!(segment.is_full());
+        assert_eq!(&records, segment.records());
+
+        // More than capacity should be rejected.
+        let one_more = kani::any();
+        assert_eq!(segment.push(one_more), Some(one_more));
+
+        // Trim and get back some space.
+        segment.trim(1);
+        assert_eq!(segment.push(one_more), None);
+        assert_eq!(segment.records()[..CAPACITY - 1], records[1..]);
+        assert_eq!(segment.records()[CAPACITY - 1], one_more);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(512)]
+    fn push_with_trim_proof() {
+        let trim = 4;
+        let mut segment = VecSegment::with_capacity(CAPACITY, Trimmer::Trim(trim));
+
+        // Test records.
+        assert!(segment.is_empty());
+        assert_eq!(CAPACITY, segment.capacity());
+
+        let records: [_; CAPACITY] = std::array::from_fn(|i| i * 2);
+        assert!(segment.extend_from_slice(&records).is_empty());
+        assert_eq!(&records, segment.records());
+
+        // Write one more, it should automatically create space for 100 more.
+        let one_more = kani::any();
+        assert_eq!(segment.push(one_more), None);
+
+        // Make sure expected state.
+        assert_eq!(&segment.records()[..CAPACITY - trim], &records[trim..]);
+        assert_eq!(segment.records()[CAPACITY - trim], one_more);
+        assert_eq!(trim - 1, segment.remaining());
+        assert_eq!(segment.len(), CAPACITY - trim + 1);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(512)]
+    fn extend_from_slice_proof() {
+        let mut segment = VecSegment::with_capacity(CAPACITY, Trimmer::Nothing);
+
+        // Test records.
+        assert!(segment.is_empty());
+        assert_eq!(CAPACITY, segment.capacity());
+        let records: [_; CAPACITY] = std::array::from_fn(|i| i * 2);
+
+        // Split into multiple chunks and write to segment.
+        for chunk in records.chunks(61) {
+            assert!(segment.remaining() >= chunk.len());
+            assert!(segment.extend_from_slice(chunk).is_empty());
+            assert_eq!(&records[..segment.len()], segment.records());
+        }
+
+        // Make sure segment has all the records now.
+        assert!(segment.is_full());
+        assert_eq!(&records, segment.records());
+
+        // More than capacity should be rejected.
+        let more_records = [3, 5, 7, 9];
+        assert_eq!(segment.extend_from_slice(&more_records), &more_records);
+
+        // Trim and get back some space.
+        segment.trim(3);
+        assert_eq!(segment.extend_from_slice(&more_records), &more_records[3..]);
+        assert_eq!(&segment.records()[..CAPACITY - 3], &records[3..]);
+        assert_eq!(&segment.records()[CAPACITY - 3..], &more_records[..3]);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(512)]
+    fn extend_from_slice_with_trim_proof() {
+        let trim = 4;
+        let mut segment = VecSegment::with_capacity(CAPACITY, Trimmer::Trim(trim));
+
+        // Test records.
+        assert!(segment.is_empty());
+        assert_eq!(CAPACITY, segment.capacity());
+
+        let records: [_; CAPACITY] = std::array::from_fn(|i| i * 2);
+        assert!(segment.extend_from_slice(&records).is_empty());
+        assert_eq!(&records, segment.records());
+
+        // More than capacity should be rejected.
+        let more_records: [_; CAPACITY] = std::array::from_fn(|i| i * 3);
+        let rejected = segment.extend_from_slice(&more_records);
+
+        // Everything more than how many records we trimmed should be rejected.
+        let trimmed = std::cmp::min(CAPACITY, trim);
+        assert_eq!(rejected, &more_records[trimmed..]);
+
+        // Make sure expected state.
+        assert_eq!(0, segment.remaining());
+        assert_eq!(segment.len(), CAPACITY);
+        assert_eq!(
+            &segment.records()[..CAPACITY - trimmed],
+            &records[trimmed..]
+        );
+        assert_eq!(
+            &segment.records()[CAPACITY - trimmed..],
+            &more_records[..trimmed]
+        );
+    }
 }
 
 #[cfg(test)]

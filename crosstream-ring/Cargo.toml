@@ -23,3 +23,7 @@ pastey = "0.1"
 
 # For parameterized tests.
 rstest = "0.26"
+
+# For kani proofs.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
