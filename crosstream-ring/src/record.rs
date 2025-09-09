@@ -37,28 +37,100 @@ pub trait Record: Sized {
 }
 
 impl<T: AnyBitPattern + NoUninit> Record for T {
-    #[inline]
     fn size() -> usize {
         size_of::<T>()
     }
 
-    #[inline]
     fn to_bytes(record: &Self) -> &[u8] {
         bytes_of(record)
     }
 
-    #[inline]
     fn from_bytes(bytes: &[u8]) -> &Self {
         from_bytes(bytes)
     }
 
-    #[inline]
     fn to_bytes_slice(records: &[Self]) -> &[u8] {
         must_cast_slice(records)
     }
 
-    #[inline]
     fn from_bytes_slice(bytes: &[u8]) -> &[Self] {
         cast_slice(bytes)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bolero::check;
+    use pastey::paste;
+
+    macro_rules! round_trip_test {
+        ($($type:ty),*) => {
+            paste! {
+                $(
+                    #[test]
+                    fn [<round_trip_record_ $type _test>]() {
+                        check!()
+                            .with_iterations(100)
+                            .with_type::<$type>()
+                            .for_each(|record| {
+                                let bytes = <$type>::to_bytes(record);
+                                assert_eq!(<$type>::size(), bytes.len());
+
+                                let returned = <$type>::from_bytes(bytes);
+                                assert_eq!(record, returned);
+                            })
+                    }
+
+                    #[test]
+                    fn [<round_trip_record_slice_ $type _test>]() {
+                        check!()
+                            .with_iterations(100)
+                            .with_type::<Vec<$type>>()
+                            .for_each(|records| {
+                                let bytes = <$type>::to_bytes_slice(records);
+                                assert_eq!(<$type>::size() * records.len(), bytes.len());
+
+                                let returned = <$type>::from_bytes_slice(bytes);
+                                assert_eq!(records, returned);
+                            })
+                    }
+
+                    #[test]
+                    fn [<round_trip_record_array_3_ $type _test>]() {
+                        check!()
+                            .with_iterations(100)
+                            .with_type::<[$type; 3]>()
+                            .for_each(|record| {
+                                let bytes = <[$type; 3]>::to_bytes(record);
+                                assert_eq!(<[$type; 3]>::size(), bytes.len());
+
+                                let returned = <[$type; 3]>::from_bytes(bytes);
+                                assert_eq!(record, returned);
+                            });
+                    }
+
+                    #[test]
+                    fn [<round_trip_record_array_3_slice_ $type _test>]() {
+                        check!()
+                            .with_iterations(100)
+                            .with_type::<Vec<[$type; 3]>>()
+                            .for_each(|records| {
+                                let bytes = <[$type; 3]>::to_bytes_slice(records);
+                                assert_eq!(<[$type; 3]>::size() * records.len(), bytes.len());
+
+                                let returned = <[$type; 3]>::from_bytes_slice(bytes);
+                                assert_eq!(records, returned);
+                            });
+                    }
+                )*
+            }
+        };
+    }
+
+    // TODO: f32 and f64 do not implement Eq
+    round_trip_test!(
+        u8, u16, u32, u64, usize, u128, // Unsigned integers
+        i8, i16, i32, i64, isize, i128 // Signed integers
+    );
 }

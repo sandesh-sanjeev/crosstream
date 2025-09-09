@@ -17,3 +17,9 @@ bytemuck = { version = "1.23", features = [
 [dev-dependencies]
 # For property based tests.
 bolero = "0.13"
+
+# For generating identifiers in macro.
+pastey = "0.1"
+
+# For parameterized tests.
+rstest = "0.26"

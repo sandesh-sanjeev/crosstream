@@ -33,31 +33,26 @@ pub struct Segment<S: Storage> {
 
 impl<S: Storage> Segment<S> {
     /// Number of records currently stored in this Segment.
-    #[inline]
     pub fn len(&self) -> usize {
         self.length
     }
 
     /// Maximum number of records that can be stored in this Segment.
-    #[inline]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
     /// Number of records that can be appended to this Segment without overflow.
-    #[inline]
     pub fn remaining(&self) -> usize {
         self.capacity - self.length
     }
 
     /// true if this Segment has no records, false otherwise.
-    #[inline]
     pub fn is_empty(&self) -> bool {
         self.length == 0
     }
 
     /// true if this Segment is at capacity, false otherwise.
-    #[inline]
     pub fn is_full(&self) -> bool {
         self.capacity == self.length
     }
@@ -75,7 +70,6 @@ impl<S: Storage> Segment<S> {
     /// # Arguments
     ///
     /// * `len` - Number of records to remove.
-    #[inline]
     pub fn trim(&mut self, len: usize) {
         // Early return if there is nothing to trim.
         if len == 0 {
@@ -101,7 +95,6 @@ impl<S: Storage> Segment<S> {
     /// # Arguments
     ///
     /// * `record` - Record to append.
-    #[inline]
     pub fn push(&mut self, record: S::Record) -> Option<S::Record> {
         // If we don't have enough capacity, attempt to trim records.
         if self.remaining() == 0 {
@@ -129,7 +122,6 @@ impl<S: Storage> Segment<S> {
     /// # Arguments
     ///
     /// * `records` - Records to append.
-    #[inline]
     pub fn extend_from_slice<'a>(&mut self, records: &'a [S::Record]) -> &'a [S::Record] {
         // If we don't have enough capacity, attempt to trim records.
         if self.remaining() < records.len() {
@@ -158,19 +150,16 @@ impl<S: Storage> Segment<S> {
     /// Remove all elements from this Segment.
     ///
     /// * This is a constant time O(1) operation.
-    #[inline]
     pub fn clear(&mut self) {
         self.storage.clear();
         self.length = 0;
     }
 
     /// Returns reference to all the records in a segment.
-    #[inline]
     pub fn records(&self) -> &[S::Record] {
         self.storage.records(self.length)
     }
 
-    #[inline]
     fn run_trimmer(&mut self) {
         let trim_len = match self.trimmer {
             Trimmer::Nothing => 0,
@@ -225,22 +214,18 @@ impl<T: Record + Copy> VecSegment<T> {
 impl<T: Record + Copy> Storage for VecStorage<T> {
     type Record = T;
 
-    #[inline]
     fn trim(&mut self, len: usize) {
         self.0.drain(..min(len, self.0.len()));
     }
 
-    #[inline]
     fn extend(&mut self, _len: usize, records: &[T]) {
         self.0.extend_from_slice(records);
     }
 
-    #[inline]
     fn clear(&mut self) {
         self.0.clear();
     }
 
-    #[inline]
     fn records(&self, _len: usize) -> &[T] {
         &self.0
     }
@@ -285,12 +270,10 @@ impl<T: Record + Copy> MmapSegment<T> {
 impl<T: Record> Storage for MmapStorage<T> {
     type Record = T;
 
-    #[inline]
     fn trim(&mut self, len: usize) {
         self.mmap.copy_within((len * T::size()).., 0);
     }
 
-    #[inline]
     fn extend(&mut self, len: usize, records: &[T]) {
         let offset = len * T::size();
         let src = T::to_bytes_slice(records);
@@ -298,10 +281,8 @@ impl<T: Record> Storage for MmapStorage<T> {
         dst.copy_from_slice(src);
     }
 
-    #[inline]
     fn clear(&mut self) {}
 
-    #[inline]
     fn records(&self, len: usize) -> &[T] {
         let end = len * T::size();
         T::from_bytes_slice(&self.mmap[..end])
@@ -326,191 +307,142 @@ pub enum Trimmer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bolero::{check, generator::*};
-    use std::{fmt::Debug, time::Duration};
+    use rstest::rstest;
 
-    // Anout 100 MB worth of memory.
-    const SEG_MEMORY: usize = 100 * 1024 * 1024;
+    const CAPACITY: usize = 1024;
 
-    #[derive(Debug, TypeGenerator)]
-    enum Operation<T: TypeGenerator + Debug> {
-        Clear,
-        Trim(u8),
-        Push(T),
-        Extend(Vec<T>),
+    fn mmap_segment(trimmer: Trimmer) -> MmapSegment<usize> {
+        MmapSegment::with_capacity(CAPACITY, trimmer)
     }
 
-    macro_rules! state_machine_test {
-        ($name:ident,$num:ty) => {
-            #[test]
-            fn $name() {
-                check!()
-                    .with_iterations(50)
-                    .with_test_time(Duration::from_millis(500))
-                    .with_type::<(Vec<Operation<$num>>, Trimmer)>()
-                    .for_each(|(operations, trimmer)| {
-                        let capacity = SEG_MEMORY / <$num>::size();
-                        let mut mmap = MmapSegment::with_capacity(capacity, *trimmer);
-                        let mut vec = VecSegment::with_capacity(capacity, *trimmer);
-
-                        for operation in operations {
-                            match operation {
-                                Operation::Clear => {
-                                    mmap.clear();
-                                    vec.clear();
-                                }
-
-                                Operation::Trim(len) => {
-                                    mmap.trim(*len as usize);
-                                    vec.trim(*len as usize);
-                                }
-
-                                Operation::Push(record) => {
-                                    mmap.push(*record);
-                                    vec.push(*record);
-                                }
-
-                                Operation::Extend(records) => {
-                                    mmap.extend_from_slice(records);
-                                    vec.extend_from_slice(records);
-                                }
-                            }
-
-                            assert_eq!(mmap.records(), vec.records());
-                        }
-                    });
-            }
-        };
+    fn vec_segment(trimmer: Trimmer) -> VecSegment<usize> {
+        VecSegment::with_capacity(CAPACITY, trimmer)
     }
 
-    state_machine_test!(state_machine_u8, u8);
-    state_machine_test!(state_machine_u16, u16);
-    state_machine_test!(state_machine_u32, u32);
-    state_machine_test!(state_machine_u64, u64);
-    state_machine_test!(state_machine_u128, u128);
-    state_machine_test!(state_machine_usize, usize);
+    #[rstest]
+    #[case(vec_segment(Trimmer::Nothing))]
+    #[case(mmap_segment(Trimmer::Nothing))]
+    fn test_push<S: Storage<Record = usize>>(#[case] mut segment: Segment<S>) {
+        // Test records.
+        assert!(segment.is_empty());
+        assert_eq!(CAPACITY, segment.capacity());
+        let records: [_; CAPACITY] = std::array::from_fn(|i| i * 2);
 
-    state_machine_test!(state_machine_i8, i8);
-    state_machine_test!(state_machine_i16, i16);
-    state_machine_test!(state_machine_i32, i32);
-    state_machine_test!(state_machine_i64, i64);
-    state_machine_test!(state_machine_i128, i128);
-    state_machine_test!(state_machine_isize, isize);
+        // Write individual records.
+        assert_eq!(0, segment.len());
+        for record in &records {
+            assert!(segment.remaining() > 0);
+            assert!(segment.push(*record).is_none());
+            assert_eq!(&records[..segment.len()], segment.records());
+        }
 
-    state_machine_test!(state_machine_u8_2, [u8; 2]);
-    state_machine_test!(state_machine_i8_2, [i8; 2]);
+        // Make sure segment has all the records now.
+        assert!(segment.is_full());
+        assert_eq!(&records, segment.records());
 
-    state_machine_test!(state_machine_u8_4, [u8; 4]);
-    state_machine_test!(state_machine_i8_4, [i8; 4]);
+        // More than capacity should be rejected.
+        assert_eq!(segment.push(100), Some(100));
 
-    state_machine_test!(state_machine_u8_8, [u8; 8]);
-    state_machine_test!(state_machine_i8_8, [i8; 8]);
+        // Trim and get back some space.
+        segment.trim(1);
+        assert_eq!(segment.push(100), None);
+        assert_eq!(segment.records()[..CAPACITY - 1], records[1..]);
+        assert_eq!(segment.records()[CAPACITY - 1], 100);
+    }
 
-    state_machine_test!(state_machine_u8_16, [u8; 16]);
-    state_machine_test!(state_machine_i8_16, [i8; 16]);
+    #[rstest]
+    #[case(vec_segment(Trimmer::Trim(100)), 100)]
+    #[case(mmap_segment(Trimmer::Trim(100)), 100)]
+    fn test_push_trimmer<S: Storage<Record = usize>>(
+        #[case] mut segment: Segment<S>,
+        #[case] trim: usize,
+    ) {
+        // Test records.
+        assert!(segment.is_empty());
+        assert_eq!(CAPACITY, segment.capacity());
 
-    state_machine_test!(state_machine_u8_32, [u8; 32]);
-    state_machine_test!(state_machine_i8_32, [i8; 32]);
+        let records: [_; CAPACITY] = std::array::from_fn(|i| i * 2);
+        assert!(segment.extend_from_slice(&records).is_empty());
+        assert_eq!(&records, segment.records());
 
-    state_machine_test!(state_machine_u8_64, [u8; 64]);
-    state_machine_test!(state_machine_i8_64, [i8; 64]);
+        // Write one more, it should automatically create space for 100 more.
+        assert_eq!(segment.push(100), None);
 
-    state_machine_test!(state_machine_u8_3, [u8; 3]);
-    state_machine_test!(state_machine_i8_3, [i8; 3]);
+        // Make sure expected state.
+        assert_eq!(&segment.records()[..CAPACITY - trim], &records[trim..]);
+        assert_eq!(segment.records()[CAPACITY - trim], 100);
+        assert_eq!(trim - 1, segment.remaining());
+        assert_eq!(segment.len(), CAPACITY - trim + 1);
+    }
 
-    state_machine_test!(state_machine_u8_9, [u8; 9]);
-    state_machine_test!(state_machine_i8_9, [i8; 9]);
+    #[rstest]
+    #[case(vec_segment(Trimmer::Nothing))]
+    #[case(mmap_segment(Trimmer::Nothing))]
+    fn test_extend_from_slice<S: Storage<Record = usize>>(#[case] mut segment: Segment<S>) {
+        // Test records.
+        assert!(segment.is_empty());
+        assert_eq!(CAPACITY, segment.capacity());
+        let records: [_; CAPACITY] = std::array::from_fn(|i| i * 2);
 
-    state_machine_test!(state_machine_u8_27, [u8; 27]);
-    state_machine_test!(state_machine_i8_27, [i8; 27]);
+        // Split into multiple chunks and write to segment.
+        for chunk in records.chunks(61) {
+            assert!(segment.remaining() >= chunk.len());
+            assert!(segment.extend_from_slice(chunk).is_empty());
+            assert_eq!(&records[..segment.len()], segment.records());
+        }
 
-    state_machine_test!(state_machine_u8_81, [u8; 81]);
-    state_machine_test!(state_machine_i8_81, [i8; 81]);
+        // Make sure segment has all the records now.
+        assert!(segment.is_full());
+        assert_eq!(&records, segment.records());
 
-    state_machine_test!(state_machine_u8_5, [u8; 5]);
-    state_machine_test!(state_machine_i8_5, [i8; 5]);
+        // More than capacity should be rejected.
+        let more_records = [3, 5, 7, 9];
+        assert_eq!(segment.extend_from_slice(&more_records), &more_records);
 
-    state_machine_test!(state_machine_u8_25, [u8; 25]);
-    state_machine_test!(state_machine_i8_25, [i8; 25]);
+        // Trim and get back some space.
+        segment.trim(3);
+        assert_eq!(segment.extend_from_slice(&more_records), &more_records[3..]);
+        assert_eq!(&segment.records()[..CAPACITY - 3], &records[3..]);
+        assert_eq!(&segment.records()[CAPACITY - 3..], &more_records[..3]);
+    }
 
-    state_machine_test!(state_machine_u8_125, [u8; 125]);
-    state_machine_test!(state_machine_i8_125, [i8; 125]);
+    #[rstest]
+    #[case(vec_segment(Trimmer::Trim(63)), 63)]
+    #[case(mmap_segment(Trimmer::Trim(63)), 63)]
+    #[case(vec_segment(Trimmer::Trim(CAPACITY)), CAPACITY)]
+    #[case(mmap_segment(Trimmer::Trim(CAPACITY)), CAPACITY)]
+    #[case(vec_segment(Trimmer::Trim(CAPACITY * 2)), CAPACITY * 2)]
+    #[case(mmap_segment(Trimmer::Trim(CAPACITY * 2)), CAPACITY * 2)]
+    fn test_extend_from_slice_trimmer<S: Storage<Record = usize>>(
+        #[case] mut segment: Segment<S>,
+        #[case] trim: usize,
+    ) {
+        // Test records.
+        assert!(segment.is_empty());
+        assert_eq!(CAPACITY, segment.capacity());
 
-    state_machine_test!(state_machine_u16_1, [u16; 1]);
-    state_machine_test!(state_machine_u16_2, [u16; 2]);
-    state_machine_test!(state_machine_u16_3, [u16; 3]);
-    state_machine_test!(state_machine_u16_4, [u16; 4]);
-    state_machine_test!(state_machine_u16_5, [u16; 5]);
-    state_machine_test!(state_machine_u16_6, [u16; 6]);
-    state_machine_test!(state_machine_u16_7, [u16; 7]);
-    state_machine_test!(state_machine_u16_8, [u16; 8]);
-    state_machine_test!(state_machine_u16_19, [u16; 9]);
-    state_machine_test!(state_machine_u16_10, [u16; 10]);
-    state_machine_test!(state_machine_u16_11, [u16; 11]);
-    state_machine_test!(state_machine_u16_12, [u16; 12]);
-    state_machine_test!(state_machine_u16_13, [u16; 13]);
-    state_machine_test!(state_machine_u16_14, [u16; 14]);
-    state_machine_test!(state_machine_u16_15, [u16; 15]);
-    state_machine_test!(state_machine_u16_16, [u16; 16]);
+        let records: [_; CAPACITY] = std::array::from_fn(|i| i * 2);
+        assert!(segment.extend_from_slice(&records).is_empty());
+        assert_eq!(&records, segment.records());
 
-    state_machine_test!(state_machine_u32_1, [u32; 1]);
-    state_machine_test!(state_machine_u32_2, [u32; 2]);
-    state_machine_test!(state_machine_u32_3, [u32; 3]);
-    state_machine_test!(state_machine_u32_4, [u32; 4]);
-    state_machine_test!(state_machine_u32_5, [u32; 5]);
-    state_machine_test!(state_machine_u32_6, [u32; 6]);
-    state_machine_test!(state_machine_u32_7, [u32; 7]);
-    state_machine_test!(state_machine_u32_8, [u32; 8]);
+        // More than capacity should be rejected.
+        let more_records: [_; CAPACITY] = std::array::from_fn(|i| i * 3);
+        let rejected = segment.extend_from_slice(&more_records);
 
-    state_machine_test!(state_machine_u64_1, [u64; 1]);
-    state_machine_test!(state_machine_u64_2, [u64; 2]);
-    state_machine_test!(state_machine_u64_3, [u64; 3]);
-    state_machine_test!(state_machine_u64_4, [u64; 4]);
+        // Everything more than how many records we trimmed should be rejected.
+        let trimmed = std::cmp::min(CAPACITY, trim);
+        assert_eq!(rejected, &more_records[trimmed..]);
 
-    state_machine_test!(state_machine_usize_1, [usize; 1]);
-    state_machine_test!(state_machine_usize_2, [usize; 2]);
-    state_machine_test!(state_machine_usize_3, [usize; 3]);
-    state_machine_test!(state_machine_usize_4, [usize; 4]);
-
-    state_machine_test!(state_machine_u128_1, [u128; 1]);
-    state_machine_test!(state_machine_u128_2, [u128; 2]);
-
-    state_machine_test!(state_machine_i16_1, [i16; 1]);
-    state_machine_test!(state_machine_i16_2, [i16; 2]);
-    state_machine_test!(state_machine_i16_3, [i16; 3]);
-    state_machine_test!(state_machine_i16_4, [i16; 4]);
-    state_machine_test!(state_machine_i16_5, [i16; 5]);
-    state_machine_test!(state_machine_i16_6, [i16; 6]);
-    state_machine_test!(state_machine_i16_7, [i16; 7]);
-    state_machine_test!(state_machine_i16_8, [i16; 8]);
-    state_machine_test!(state_machine_i16_19, [i16; 9]);
-    state_machine_test!(state_machine_i16_10, [i16; 10]);
-    state_machine_test!(state_machine_i16_11, [i16; 11]);
-    state_machine_test!(state_machine_i16_12, [i16; 12]);
-    state_machine_test!(state_machine_i16_13, [i16; 13]);
-    state_machine_test!(state_machine_i16_14, [i16; 14]);
-    state_machine_test!(state_machine_i16_15, [i16; 15]);
-    state_machine_test!(state_machine_i16_16, [i16; 16]);
-
-    state_machine_test!(state_machine_i32_1, [i32; 1]);
-    state_machine_test!(state_machine_i32_2, [i32; 2]);
-    state_machine_test!(state_machine_i32_3, [i32; 3]);
-    state_machine_test!(state_machine_i32_4, [i32; 4]);
-    state_machine_test!(state_machine_i32_5, [i32; 5]);
-    state_machine_test!(state_machine_i32_6, [i32; 6]);
-    state_machine_test!(state_machine_i32_7, [i32; 7]);
-    state_machine_test!(state_machine_i32_8, [i32; 8]);
-
-    state_machine_test!(state_machine_i64_1, [i64; 1]);
-    state_machine_test!(state_machine_i64_2, [i64; 2]);
-    state_machine_test!(state_machine_i64_3, [i64; 3]);
-    state_machine_test!(state_machine_i64_4, [i64; 4]);
-
-    state_machine_test!(state_machine_isize_1, [isize; 1]);
-    state_machine_test!(state_machine_isize_2, [isize; 2]);
-    state_machine_test!(state_machine_isize_3, [isize; 3]);
-    state_machine_test!(state_machine_isize_4, [isize; 4]);
-
-    state_machine_test!(state_machine_i128_1, [i128; 1]);
-    state_machine_test!(state_machine_i128_2, [i128; 2]);
+        // Make sure expected state.
+        assert_eq!(0, segment.remaining());
+        assert_eq!(segment.len(), CAPACITY);
+        assert_eq!(
+            &segment.records()[..CAPACITY - trimmed],
+            &records[trimmed..]
+        );
+        assert_eq!(
+            &segment.records()[CAPACITY - trimmed..],
+            &more_records[..trimmed]
+        );
+    }
 }
