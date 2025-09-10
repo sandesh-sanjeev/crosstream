@@ -1,9 +1,7 @@
 //! Definition of a container of contiguous elements.
 
-use crate::Record;
-use memmap2::{MmapMut, MmapOptions};
+use crate::{MmapStorage, Record, Storage, VecStorage};
 use std::cmp::min;
-use std::marker::PhantomData;
 
 /// Type alias for a [`Segment`] backed by a [`VecStorage`].
 pub type VecSegment<T> = Segment<VecStorage<T>>;
@@ -25,36 +23,66 @@ pub type MmapSegment<T> = Segment<MmapStorage<T>>;
 /// * Provides two storage engines: [`VecStorage`] and [`MmapStorage`].
 #[derive(Debug)]
 pub struct Segment<S: Storage> {
-    length: usize,
-    capacity: usize,
     storage: S,
     trimmer: Trimmer,
+}
+
+impl<T: Record + Copy> VecSegment<T> {
+    /// Create a new instance of Segment using `Vec` for memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - Maximum number of elements this segment can accommodate.
+    /// * `trimmer` - Trimmer to use when appending records into segment.
+    pub fn with_capacity(capacity: usize, trimmer: Trimmer) -> VecSegment<T> {
+        Self {
+            trimmer,
+            storage: VecStorage::new(capacity),
+        }
+    }
+}
+
+impl<T: Record> MmapSegment<T> {
+    /// Create a new instance of Segment using `MmapMut` for memory.
+    ///
+    /// * TODO: Add support for huge pages.
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - Maximum number of elements this segment can accommodate.
+    /// * `trimmer` - Trimmer to use when appending records into segment.
+    pub fn with_capacity(capacity: usize, trimmer: Trimmer) -> MmapSegment<T> {
+        Self {
+            trimmer,
+            storage: MmapStorage::new(capacity),
+        }
+    }
 }
 
 impl<S: Storage> Segment<S> {
     /// Number of records currently stored in this Segment.
     pub fn len(&self) -> usize {
-        self.length
+        self.storage.length()
     }
 
     /// Maximum number of records that can be stored in this Segment.
     pub fn capacity(&self) -> usize {
-        self.capacity
+        self.storage.capacity()
     }
 
     /// Number of records that can be appended to this Segment without overflow.
     pub fn remaining(&self) -> usize {
-        self.capacity - self.length
+        self.storage.remaining()
     }
 
     /// true if this Segment has no records, false otherwise.
     pub fn is_empty(&self) -> bool {
-        self.length == 0
+        self.len() == 0
     }
 
     /// true if this Segment is at capacity, false otherwise.
     pub fn is_full(&self) -> bool {
-        self.capacity == self.length
+        self.capacity() == self.len()
     }
 
     /// Trim first N records from this Segment.
@@ -77,14 +105,13 @@ impl<S: Storage> Segment<S> {
         }
 
         // Optimization if all the records can be trimmed.
-        if len >= self.length {
+        if len >= self.len() {
             self.clear();
             return;
         }
 
         // We need to left shift some bytes.
         self.storage.trim(len);
-        self.length -= len;
     }
 
     /// Append a record into this Segment.
@@ -107,8 +134,7 @@ impl<S: Storage> Segment<S> {
         }
 
         // Copy record bytes to internal buffers.
-        self.storage.extend(self.length, &[record]);
-        self.length += 1;
+        self.storage.extend(&[record]);
 
         // The record was consumed, nothing to return.
         None
@@ -140,8 +166,7 @@ impl<S: Storage> Segment<S> {
         }
 
         // Copy record bytes to internal buffers.
-        self.storage.extend(self.length, to_append);
-        self.length += to_append.len();
+        self.storage.extend(to_append);
 
         // Return all the rejected records.
         to_reject
@@ -152,12 +177,11 @@ impl<S: Storage> Segment<S> {
     /// * This is a constant time O(1) operation.
     pub fn clear(&mut self) {
         self.storage.clear();
-        self.length = 0;
     }
 
     /// Returns reference to all the records in a segment.
     pub fn records(&self) -> &[S::Record] {
-        self.storage.records(self.length)
+        self.storage.records()
     }
 
     fn run_trimmer(&mut self) {
@@ -169,123 +193,6 @@ impl<S: Storage> Segment<S> {
         if trim_len > 0 {
             self.trim(trim_len);
         }
-    }
-}
-
-/// Storage engine that backs a [`Segment`].
-pub trait Storage {
-    /// Associated type for records stored.
-    type Record: Record;
-
-    /// Trim first len records from storage.
-    fn trim(&mut self, len: usize);
-
-    /// Append some records into storage.
-    fn extend(&mut self, len: usize, records: &[Self::Record]);
-
-    /// Clear all records from storage.
-    fn clear(&mut self);
-
-    /// Return reference to all records in storage.
-    fn records(&self, len: usize) -> &[Self::Record];
-}
-
-/// Storage engine for [`Segment`] that uses [`Vec`] for memory.
-#[derive(Debug)]
-pub struct VecStorage<T>(Vec<T>);
-
-impl<T: Record + Copy> VecSegment<T> {
-    /// Create a new instance of Segment using [`Vec`] for memory.
-    ///
-    /// # Arguments
-    ///
-    /// * `capacity` - Maximum number of elements this segment can accommodate.
-    /// * `trimmer` - Trimmer to use when appending records into segment.
-    pub fn with_capacity(capacity: usize, trimmer: Trimmer) -> VecSegment<T> {
-        Self {
-            length: 0,
-            capacity,
-            trimmer,
-            storage: VecStorage(Vec::with_capacity(capacity)),
-        }
-    }
-}
-
-impl<T: Record + Copy> Storage for VecStorage<T> {
-    type Record = T;
-
-    fn trim(&mut self, len: usize) {
-        self.0.drain(..min(len, self.0.len()));
-    }
-
-    fn extend(&mut self, _len: usize, records: &[T]) {
-        self.0.extend_from_slice(records);
-    }
-
-    fn clear(&mut self) {
-        self.0.clear();
-    }
-
-    fn records(&self, _len: usize) -> &[T] {
-        &self.0
-    }
-}
-
-/// Storage engine for [`Segment`] that uses [`MmapMut`] for memory.
-#[derive(Debug)]
-pub struct MmapStorage<T> {
-    mmap: MmapMut,
-    phantom: PhantomData<T>,
-}
-
-impl<T: Record + Copy> MmapSegment<T> {
-    /// Create a new instance of Segment using [`MmapMut`] for memory.
-    ///
-    /// * TODO: Add support for huge pages.
-    ///
-    /// # Arguments
-    ///
-    /// * `capacity` - Maximum number of elements this segment can accommodate.
-    /// * `trimmer` - Trimmer to use when appending records into segment.
-    pub fn with_capacity(capacity: usize, trimmer: Trimmer) -> MmapSegment<T> {
-        let mmap = MmapOptions::new()
-            // .huge(None) TODO: Enable support for huge pages.
-            .len(capacity * T::size())
-            .populate()
-            .map_anon()
-            .expect("Cannot mmap capacity");
-
-        Self {
-            length: 0,
-            trimmer,
-            capacity,
-            storage: MmapStorage {
-                mmap,
-                phantom: PhantomData,
-            },
-        }
-    }
-}
-
-impl<T: Record> Storage for MmapStorage<T> {
-    type Record = T;
-
-    fn trim(&mut self, len: usize) {
-        self.mmap.copy_within((len * T::size()).., 0);
-    }
-
-    fn extend(&mut self, len: usize, records: &[T]) {
-        let offset = len * T::size();
-        let src = T::to_bytes_slice(records);
-        let dst = &mut self.mmap[offset..(offset + src.len())];
-        dst.copy_from_slice(src);
-    }
-
-    fn clear(&mut self) {}
-
-    fn records(&self, len: usize) -> &[T] {
-        let end = len * T::size();
-        T::from_bytes_slice(&self.mmap[..end])
     }
 }
 

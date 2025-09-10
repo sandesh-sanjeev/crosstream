@@ -13,7 +13,7 @@
 Crates makes minimal use of `unsafe` for better perf. However we use `unsafe`
 only where it is trivially provable correct to human readers and proof engines. 
 
-## Setup Kani verifier
+## Kani Verifier
 
 <https://model-checking.github.io/kani/>
 
@@ -44,4 +44,29 @@ $ cargo kani --tests
 ...
 Manual Harness Summary:
 Complete - 52 successfully verified harnesses, 0 failures, 52 total.
+```
+
+#### With coverage
+
+```bash
+cargo kani --tests --coverage -Z source-coverage
+...
+...
+crosstream-ring/src/segment.rs (segment::Segment::<segment::VecStorage<u64>>::with_capacity)
+ * 204:5 - 211:6 COVERED
+
+crosstream-ring/src/segment.rs (segment::verification::push_proof)
+ * 316:5 - 325:34 COVERED
+ * 326:13 - 330:10 COVERED
+ * 326:23 - 326:31 COVERED
+ * 333:9 - 345:6 COVERED
+
+Verification Time: 10.441694s
+```
+
+#### Individual proof
+
+```bash
+$ cargo kani --tests --harness push_with_trim_proof
+$ cargo kani --tests --harness push_with_trim_proof --coverage -Z source-coverage
 ```

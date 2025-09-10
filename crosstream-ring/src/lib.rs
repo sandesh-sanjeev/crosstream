@@ -69,7 +69,9 @@
 
 pub(crate) mod record;
 pub(crate) mod segment;
+pub(crate) mod storage;
 
 // Externally exposed types.
 pub use record::Record;
-pub use segment::{MmapSegment, MmapStorage, Segment, Trimmer, VecSegment, VecStorage};
+pub use segment::{MmapSegment, Segment, Trimmer, VecSegment};
+pub use storage::{MmapStorage, Storage, VecStorage};
