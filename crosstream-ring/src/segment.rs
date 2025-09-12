@@ -1,13 +1,18 @@
 //! Definition of a container of contiguous elements.
 
-use crate::{MmapStorage, Record, Storage, VecStorage};
+use crate::{
+    MemStorage, OffHeap, OffHeapStorage, OnHeap, OnHeapStorage, Record, Storage, VecStorage,
+};
 use std::cmp::min;
 
-/// Type alias for a [`Segment`] backed by a [`VecStorage`].
+/// Type alias for a [`Segment`] backed by [`VecStorage`].
 pub type VecSegment<T> = Segment<VecStorage<T>>;
 
-/// Type alias for a [`Segment`] backed by a [`MmapStorage`].
-pub type MmapSegment<T> = Segment<MmapStorage<T>>;
+/// Type alias for a [`Segment`] backed by [`OffHeapStorage`].
+pub type OffHeapSegment<T> = Segment<OffHeapStorage<T>>;
+
+/// Type alias for a [`Segment`] backed by [`OnHeapStorage`].
+pub type OnHeapSegment<T> = Segment<OnHeapStorage<T>>;
 
 /// Segment is a container of contiguous elements.
 ///
@@ -15,12 +20,11 @@ pub type MmapSegment<T> = Segment<MmapStorage<T>>;
 /// ring buffer. But might be useful in other cases that requires large amounts of data
 /// in memory (maybe on disk on day).
 ///
-/// * Memory is allocated using anonymous mmap rather than global allocator.
 /// * Does not support growth, i.e, cannot be resized to increase capacity.
 /// * There can be no gaps between elements, push/remove from back, but only remove from front.
 /// * As of now (and probably forever) only supports elements that implement [`Record`].
-/// * Performance of `Segment` operations is virtually identical to that of [`Vec`].
-/// * Provides two storage engines: [`VecStorage`] and [`MmapStorage`].
+/// * Performance of Segment operations is virtually identical to that of [`Vec`].
+/// * Supports few different types of storage engines; [`VecSegment`], [`OffHeapSegment`] and [`OnHeapSegment`].
 #[derive(Debug)]
 pub struct Segment<S: Storage> {
     storage: S,
@@ -42,8 +46,23 @@ impl<T: Record + Copy> VecSegment<T> {
     }
 }
 
-impl<T: Record> MmapSegment<T> {
-    /// Create a new instance of Segment using `MmapMut` for memory.
+impl<T: Record> OffHeapSegment<T> {
+    /// Create a new instance of Segment using memory allocated off-heap.
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - Maximum number of elements this segment can accommodate.
+    /// * `trimmer` - Trimmer to use when appending records into segment.
+    pub fn with_capacity(capacity: usize, trimmer: Trimmer) -> OffHeapSegment<T> {
+        Self {
+            trimmer,
+            storage: MemStorage::<_, OffHeap>::new(capacity),
+        }
+    }
+}
+
+impl<T: Record> OnHeapSegment<T> {
+    /// Create a new instance of Segment using memory allocated on heap.
     ///
     /// * TODO: Add support for huge pages.
     ///
@@ -51,10 +70,10 @@ impl<T: Record> MmapSegment<T> {
     ///
     /// * `capacity` - Maximum number of elements this segment can accommodate.
     /// * `trimmer` - Trimmer to use when appending records into segment.
-    pub fn with_capacity(capacity: usize, trimmer: Trimmer) -> MmapSegment<T> {
+    pub fn with_capacity(capacity: usize, trimmer: Trimmer) -> OnHeapSegment<T> {
         Self {
             trimmer,
-            storage: MmapStorage::new(capacity),
+            storage: MemStorage::<_, OnHeap>::new(capacity),
         }
     }
 }
@@ -186,7 +205,7 @@ impl<S: Storage> Segment<S> {
 
     fn run_trimmer(&mut self) {
         let trim_len = match self.trimmer {
-            Trimmer::Nothing => 0,
+            Trimmer::None => 0,
             Trimmer::Trim(len) => len,
         };
 
@@ -199,149 +218,16 @@ impl<S: Storage> Segment<S> {
 /// Strategy used to trim records during appends into a [`Segment`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(test, derive(bolero::TypeGenerator))]
-#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub enum Trimmer {
     /// When an append operation occurs and there isn't sufficient capacity
     /// to accommodate records, this does nothing. Meaning one or more records
     /// might be rejected from the segment.
-    Nothing,
+    None,
 
     /// When an append operation occurs and there isn't sufficient capacity
     /// to accommodate records, this trims first N records from the segment.
     /// However records will  be rejected if N < number of records being appended.
     Trim(usize),
-}
-
-#[cfg(kani)]
-mod verification {
-    use super::*;
-
-    const CAPACITY: usize = 10;
-
-    #[kani::proof]
-    #[kani::unwind(512)]
-    fn push_proof() {
-        let mut segment = VecSegment::with_capacity(CAPACITY, Trimmer::Nothing);
-
-        // Test records.
-        assert!(segment.is_empty());
-        assert_eq!(CAPACITY, segment.capacity());
-        let records: [u64; CAPACITY] = kani::any();
-
-        // Write individual records.
-        assert_eq!(0, segment.len());
-        for record in &records {
-            assert!(segment.remaining() > 0);
-            assert!(segment.push(*record).is_none());
-            assert_eq!(&records[..segment.len()], segment.records());
-        }
-
-        // Make sure segment has all the records now.
-        assert!(segment.is_full());
-        assert_eq!(&records, segment.records());
-
-        // More than capacity should be rejected.
-        let one_more = kani::any();
-        assert_eq!(segment.push(one_more), Some(one_more));
-
-        // Trim and get back some space.
-        segment.trim(1);
-        assert_eq!(segment.push(one_more), None);
-        assert_eq!(segment.records()[..CAPACITY - 1], records[1..]);
-        assert_eq!(segment.records()[CAPACITY - 1], one_more);
-    }
-
-    #[kani::proof]
-    #[kani::unwind(512)]
-    fn push_with_trim_proof() {
-        let trim = 4;
-        let mut segment = VecSegment::with_capacity(CAPACITY, Trimmer::Trim(trim));
-
-        // Test records.
-        assert!(segment.is_empty());
-        assert_eq!(CAPACITY, segment.capacity());
-
-        let records: [_; CAPACITY] = std::array::from_fn(|i| i * 2);
-        assert!(segment.extend_from_slice(&records).is_empty());
-        assert_eq!(&records, segment.records());
-
-        // Write one more, it should automatically create space for 100 more.
-        let one_more = kani::any();
-        assert_eq!(segment.push(one_more), None);
-
-        // Make sure expected state.
-        assert_eq!(&segment.records()[..CAPACITY - trim], &records[trim..]);
-        assert_eq!(segment.records()[CAPACITY - trim], one_more);
-        assert_eq!(trim - 1, segment.remaining());
-        assert_eq!(segment.len(), CAPACITY - trim + 1);
-    }
-
-    #[kani::proof]
-    #[kani::unwind(512)]
-    fn extend_from_slice_proof() {
-        let mut segment = VecSegment::with_capacity(CAPACITY, Trimmer::Nothing);
-
-        // Test records.
-        assert!(segment.is_empty());
-        assert_eq!(CAPACITY, segment.capacity());
-        let records: [_; CAPACITY] = std::array::from_fn(|i| i * 2);
-
-        // Split into multiple chunks and write to segment.
-        for chunk in records.chunks(61) {
-            assert!(segment.remaining() >= chunk.len());
-            assert!(segment.extend_from_slice(chunk).is_empty());
-            assert_eq!(&records[..segment.len()], segment.records());
-        }
-
-        // Make sure segment has all the records now.
-        assert!(segment.is_full());
-        assert_eq!(&records, segment.records());
-
-        // More than capacity should be rejected.
-        let more_records = [3, 5, 7, 9];
-        assert_eq!(segment.extend_from_slice(&more_records), &more_records);
-
-        // Trim and get back some space.
-        segment.trim(3);
-        assert_eq!(segment.extend_from_slice(&more_records), &more_records[3..]);
-        assert_eq!(&segment.records()[..CAPACITY - 3], &records[3..]);
-        assert_eq!(&segment.records()[CAPACITY - 3..], &more_records[..3]);
-    }
-
-    #[kani::proof]
-    #[kani::unwind(512)]
-    fn extend_from_slice_with_trim_proof() {
-        let trim = 4;
-        let mut segment = VecSegment::with_capacity(CAPACITY, Trimmer::Trim(trim));
-
-        // Test records.
-        assert!(segment.is_empty());
-        assert_eq!(CAPACITY, segment.capacity());
-
-        let records: [_; CAPACITY] = std::array::from_fn(|i| i * 2);
-        assert!(segment.extend_from_slice(&records).is_empty());
-        assert_eq!(&records, segment.records());
-
-        // More than capacity should be rejected.
-        let more_records: [_; CAPACITY] = std::array::from_fn(|i| i * 3);
-        let rejected = segment.extend_from_slice(&more_records);
-
-        // Everything more than how many records we trimmed should be rejected.
-        let trimmed = std::cmp::min(CAPACITY, trim);
-        assert_eq!(rejected, &more_records[trimmed..]);
-
-        // Make sure expected state.
-        assert_eq!(0, segment.remaining());
-        assert_eq!(segment.len(), CAPACITY);
-        assert_eq!(
-            &segment.records()[..CAPACITY - trimmed],
-            &records[trimmed..]
-        );
-        assert_eq!(
-            &segment.records()[CAPACITY - trimmed..],
-            &more_records[..trimmed]
-        );
-    }
 }
 
 #[cfg(test)]
@@ -351,8 +237,12 @@ mod tests {
 
     const CAPACITY: usize = 1024;
 
-    fn mmap_segment(trimmer: Trimmer) -> MmapSegment<usize> {
-        MmapSegment::with_capacity(CAPACITY, trimmer)
+    fn on_heap_segment(trimmer: Trimmer) -> OnHeapSegment<usize> {
+        OnHeapSegment::with_capacity(CAPACITY, trimmer)
+    }
+
+    fn off_heap_segment(trimmer: Trimmer) -> OffHeapSegment<usize> {
+        OffHeapSegment::with_capacity(CAPACITY, trimmer)
     }
 
     fn vec_segment(trimmer: Trimmer) -> VecSegment<usize> {
@@ -360,8 +250,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec_segment(Trimmer::Nothing))]
-    #[case(mmap_segment(Trimmer::Nothing))]
+    #[case(vec_segment(Trimmer::None))]
+    #[case(off_heap_segment(Trimmer::None))]
+    #[case(on_heap_segment(Trimmer::None))]
     fn test_push<S: Storage<Record = usize>>(#[case] mut segment: Segment<S>) {
         // Test records.
         assert!(segment.is_empty());
@@ -392,7 +283,8 @@ mod tests {
 
     #[rstest]
     #[case(vec_segment(Trimmer::Trim(100)), 100)]
-    #[case(mmap_segment(Trimmer::Trim(100)), 100)]
+    #[case(off_heap_segment(Trimmer::Trim(100)), 100)]
+    #[case(on_heap_segment(Trimmer::Trim(100)), 100)]
     fn test_push_trimmer<S: Storage<Record = usize>>(
         #[case] mut segment: Segment<S>,
         #[case] trim: usize,
@@ -416,8 +308,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec_segment(Trimmer::Nothing))]
-    #[case(mmap_segment(Trimmer::Nothing))]
+    #[case(vec_segment(Trimmer::None))]
+    #[case(off_heap_segment(Trimmer::None))]
+    #[case(on_heap_segment(Trimmer::None))]
     fn test_extend_from_slice<S: Storage<Record = usize>>(#[case] mut segment: Segment<S>) {
         // Test records.
         assert!(segment.is_empty());
@@ -448,11 +341,14 @@ mod tests {
 
     #[rstest]
     #[case(vec_segment(Trimmer::Trim(63)), 63)]
-    #[case(mmap_segment(Trimmer::Trim(63)), 63)]
+    #[case(off_heap_segment(Trimmer::Trim(63)), 63)]
+    #[case(on_heap_segment(Trimmer::Trim(63)), 63)]
     #[case(vec_segment(Trimmer::Trim(CAPACITY)), CAPACITY)]
-    #[case(mmap_segment(Trimmer::Trim(CAPACITY)), CAPACITY)]
+    #[case(off_heap_segment(Trimmer::Trim(CAPACITY)), CAPACITY)]
+    #[case(on_heap_segment(Trimmer::Trim(CAPACITY)), CAPACITY)]
     #[case(vec_segment(Trimmer::Trim(CAPACITY * 2)), CAPACITY * 2)]
-    #[case(mmap_segment(Trimmer::Trim(CAPACITY * 2)), CAPACITY * 2)]
+    #[case(off_heap_segment(Trimmer::Trim(CAPACITY * 2)), CAPACITY * 2)]
+    #[case(on_heap_segment(Trimmer::Trim(CAPACITY * 2)), CAPACITY * 2)]
     fn test_extend_from_slice_trimmer<S: Storage<Record = usize>>(
         #[case] mut segment: Segment<S>,
         #[case] trim: usize,

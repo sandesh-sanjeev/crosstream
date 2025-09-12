@@ -24,7 +24,7 @@
 //! space to hold records being appended. Note that one or more records might be rejected even after
 //! trimming, if records trimmed < records being appended.
 //!
-//! * [`Trimmer::Nothing`] - Do nothing.
+//! * [`Trimmer::None`] - Do nothing.
 //! * [`Trimmer::Trim`] - Remove N records from the beginning of Segment.
 //!
 //! ### Storage
@@ -34,18 +34,20 @@
 //! will depend on other factors, for example [`MmapStorage`] engine allows allocating memory with huge pages.
 //!
 //! * [`VecStorage`] - Storage engine backed by [`Vec`] with global allocator.
-//! * [`MmapStorage`] - Storage engine backed by anonymous mmap for memory.
+//! * [`OffHeapSegment`] - Storage engine backed by anonymous mmap for memory.
+//! * [`OnHeapSegment`] - Storage engine backed by a [`Vec`] of bytes.
 //!
 //! ### Example
 //!
 //!```
-//! use crosstream_ring::{MmapSegment, Trimmer};
+//! use crosstream_ring::{OffHeapSegment, Trimmer};
 //!
 //! // Trimmer to use with a segment.
-//! let trimmer = Trimmer::Nothing;
+//! // Use the segment as fixed size, append only collection.
+//! let trimmer = Trimmer::None;
 //!
 //! // Create a new Segment.
-//! let mut segment = MmapSegment::with_capacity(3, trimmer);
+//! let mut segment = OffHeapSegment::with_capacity(3, trimmer);
 //!
 //! // Append individual records.
 //! assert_eq!(segment.push(1), None);
@@ -73,5 +75,7 @@ pub(crate) mod storage;
 
 // Externally exposed types.
 pub use record::Record;
-pub use segment::{MmapSegment, Segment, Trimmer, VecSegment};
-pub use storage::{MmapStorage, Storage, VecStorage};
+pub use segment::{OffHeapSegment, OnHeapSegment, Segment, Trimmer, VecSegment};
+pub use storage::{
+    MemStorage, OffHeap, OffHeapStorage, OnHeap, OnHeapStorage, Storage, VecStorage,
+};
