@@ -6,10 +6,9 @@
 
 [![Coverage Status](https://coveralls.io/repos/github/sandesh-sanjeev/crosstream/badge.svg?branch=master)](https://coveralls.io/github/sandesh-sanjeev/crosstream?branch=master)
 
-
 ## Security
 
-Crates makes minimal use of `unsafe` for better perf. However we use `unsafe`
+Crates makes liberal use of `unsafe` for better perf. However we use `unsafe`
 only where it is trivially provable correct to human readers and proof engines. 
 
 ## Tests

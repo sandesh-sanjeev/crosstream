@@ -1,5 +1,11 @@
 //! Definition of fixed size types with compile time known layout, size and alignment.
 
+/// A sequenced [`Record`] that can be stored in a ring buffer.
+pub trait SeqRecord: Record {
+    /// Sequence number of the record.
+    fn seq_no(&self) -> u64;
+}
+
 /// Fixed sized type with compile time known layout, size and alignment.
 ///
 /// The basic idea is that this type provides support for zero-copy transmutation
@@ -97,12 +103,18 @@ impl<T: FromBytes + IntoBytes + Immutable + KnownLayout> Record for T {
 }
 
 #[cfg(test)]
-#[cfg(feature = "bytemuck")]
+#[cfg(any(feature = "zerocopy", feature = "bytemuck"))]
 mod tests {
     use super::*;
     use bolero::{TypeGenerator, check};
+
+    #[cfg(feature = "bytemuck")]
     use bytemuck::{Pod, Zeroable};
 
+    #[cfg(feature = "zerocopy")]
+    use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
+    #[cfg(feature = "bytemuck")]
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, TypeGenerator, Pod, Zeroable)]
     struct Log {
@@ -110,39 +122,7 @@ mod tests {
         offset: usize,
     }
 
-    #[test]
-    fn round_trip_record() {
-        check!().with_type::<Log>().for_each(|record| {
-            // Transmute to bytes
-            let bytes = Log::to_bytes(record);
-            assert_eq!(Log::size(), bytes.len());
-
-            // Transmute from bytes.
-            let returned = Log::from_bytes(bytes);
-            assert_eq!(record, returned);
-        });
-    }
-
-    #[test]
-    fn round_trip_record_slice() {
-        check!().with_type::<Vec<Log>>().for_each(|records| {
-            // Transmute to bytes
-            let bytes = Log::to_bytes_slice(records);
-            assert_eq!(Log::size() * records.len(), bytes.len());
-
-            // Transmute from bytes.
-            let returned = Log::from_bytes_slice(bytes);
-            assert_eq!(records, returned);
-        });
-    }
-}
-
-#[cfg(test)]
-#[cfg(feature = "zerocopy")]
-mod tests {
-    use super::*;
-    use bolero::{TypeGenerator, check};
-
+    #[cfg(feature = "zerocopy")]
     #[repr(C)]
     #[derive(
         Debug,

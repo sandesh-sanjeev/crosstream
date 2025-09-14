@@ -6,3 +6,7 @@ Cargo.lock
 
 # Do not check in vscode settings.
 .vscode
+
+# Do not check in coverage results
+lcov.info
+tarpaulin-report.html

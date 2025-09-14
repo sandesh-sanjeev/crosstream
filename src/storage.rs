@@ -287,6 +287,9 @@ impl OffHeap {
             // Especially with huge pages.
             .expect("Cannot allocate anonymous mmap");
 
+        // TODO: We might want to align to record type, rather than
+        // system page size. I wish mmap had the ability to influence
+        // memory alignment.
         Self(mmap)
     }
 }
@@ -302,6 +305,11 @@ impl AsMut<[u8]> for OffHeap {
         &mut self.0
     }
 }
+
+// Safety: Raw pointer is only exposed via AsRef and AsMut.
+// So safety is guaranteed due to aliasing rules.
+unsafe impl Send for OnHeap {}
+unsafe impl Sync for OnHeap {}
 
 /// On heap memory that backs a [`MemStorage`] engine.
 #[derive(Debug)]
@@ -405,49 +413,10 @@ mod tests {
     #[case(vec_storage(CAPACITY))]
     #[case(on_heap_storage(CAPACITY))]
     #[case(off_heap_storage(CAPACITY))]
-    fn trim<S: Storage<Record = u64>>(#[case] mut storage: S) {
-        assert_eq!(CAPACITY, storage.capacity());
-        let records: Vec<_> = (0..CAPACITY as u64).collect();
-        for batch_size in 1..1024 {
-            // Clear storage for the test run.
-            storage.clear();
-
-            // Assert starting state of storage.
-            assert_eq!(storage.length(), 0);
-            assert_eq!(storage.records(), &[]);
-            assert_eq!(storage.remaining(), CAPACITY);
-
-            // Populate storage to run trim tests.
-            assert!(storage.remaining() >= records.len());
-            storage.extend(&records);
-            assert_eq!(storage.records(), &records);
-
-            // Repeatedly trim till storage is empty.
-            for chunk in records.chunks(batch_size) {
-                // Trim just enough records to make space for new ones.
-                assert!(storage.length() >= chunk.len());
-                storage.trim(chunk.len());
-
-                // Add those records to storage.
-                assert_eq!(storage.remaining(), chunk.len());
-                storage.extend(chunk);
-            }
-
-            // Assert final state of storage.
-            assert_eq!(storage.remaining(), 0);
-            assert_eq!(storage.length(), CAPACITY);
-            assert_eq!(storage.records(), &records);
-        }
-    }
-
-    #[rstest]
-    #[case(vec_storage(CAPACITY))]
-    #[case(on_heap_storage(CAPACITY))]
-    #[case(off_heap_storage(CAPACITY))]
     fn extend<S: Storage<Record = u64>>(#[case] mut storage: S) {
         assert_eq!(CAPACITY, storage.capacity());
         let records: Vec<_> = (0..CAPACITY as u64).collect();
-        for batch_size in 1..1024 {
+        for batch_size in 1..=CAPACITY {
             // Clear storage for the test run.
             storage.clear();
 
@@ -471,6 +440,56 @@ mod tests {
             }
 
             // Assert final state.
+            assert_eq!(storage.remaining(), 0);
+            assert_eq!(storage.length(), CAPACITY);
+            assert_eq!(storage.records(), &records);
+        }
+    }
+
+    #[rstest]
+    #[case(vec_storage(CAPACITY))]
+    #[case(on_heap_storage(CAPACITY))]
+    #[case(off_heap_storage(CAPACITY))]
+    fn trim<S: Storage<Record = u64>>(#[case] mut storage: S) {
+        assert_eq!(CAPACITY, storage.capacity());
+        let records: Vec<_> = (0..CAPACITY as u64).collect();
+        for batch_size in 1..=CAPACITY {
+            // Clear storage for the test run.
+            storage.clear();
+
+            // Assert starting state of storage.
+            assert_eq!(storage.length(), 0);
+            assert_eq!(storage.records(), &[]);
+            assert_eq!(storage.remaining(), CAPACITY);
+
+            // Populate storage to run trim tests.
+            assert!(storage.remaining() >= records.len());
+            storage.extend(&records);
+            assert_eq!(storage.records(), &records);
+
+            // Repeatedly trim till storage is empty.
+            let mut length = 0;
+            for chunk in records.chunks(batch_size) {
+                // Trim just enough records to make space for new ones.
+                assert!(storage.length() >= chunk.len());
+                storage.trim(chunk.len());
+
+                // Add those records to storage.
+                assert_eq!(storage.remaining(), chunk.len());
+                storage.extend(chunk);
+                length += chunk.len();
+
+                // Assert current state.
+                assert_eq!(storage.remaining(), 0);
+                assert_eq!(storage.length(), CAPACITY);
+
+                // Records are mixed due to trimming.
+                let prev_len = CAPACITY - length;
+                assert_eq!(&storage.records()[..prev_len], &records[length..]);
+                assert_eq!(&storage.records()[prev_len..], &records[..length]);
+            }
+
+            // Assert final state of storage.
             assert_eq!(storage.remaining(), 0);
             assert_eq!(storage.length(), CAPACITY);
             assert_eq!(storage.records(), &records);
