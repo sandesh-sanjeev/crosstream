@@ -1,0 +1,28 @@
+[test_config]
+# Name of the project.
+name = "crosstream"
+
+# Include both line and branch coverage.
+line-coverage = true
+branch-coverage = true
+
+# Do not run with all the features combined.
+all-features = false
+
+# Specify the engine to use for collecting coverage.
+engine = "Llvm"
+
+# Include test functions in the coverage statistics.
+include-tests = false
+
+# Run tests with zerocopy feature.
+[zerocopy_coverage]
+features = "zerocopy"
+
+# Run tests with bytemuck feature.
+[bytemuck_coverage]
+features = "bytemuck"
+
+# Final coverage report to generate.
+[report]
+out = ["Html", "Lcov"]

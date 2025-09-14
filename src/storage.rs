@@ -1,4 +1,4 @@
-//! Definition of storage engine that backs a segment.
+//! Definition of storage engine that can hold contiguous sequence of elements.
 
 use crate::Record;
 use core::slice;
@@ -34,7 +34,9 @@ pub trait Storage {
     fn length(&self) -> usize;
 
     /// Number of records that can be appended to storage without overflow.
-    fn remaining(&self) -> usize;
+    fn remaining(&self) -> usize {
+        self.capacity() - self.length()
+    }
 
     /// Trim first len records from storage.
     ///
@@ -51,7 +53,8 @@ pub trait Storage {
     ///
     /// # Invariants
     ///
-    /// * records.len() should be <= self.remaining()
+    /// * records.len() > 0
+    /// * records.len() <= self.remaining()
     ///
     /// # Arguments
     ///
@@ -82,6 +85,7 @@ impl<T: Record + Copy> VecStorage<T> {
     /// # Arguments
     ///
     /// * `capacity` - Maximum capacity of this storage engine.
+    #[allow(dead_code)]
     pub(crate) fn new(capacity: usize) -> Self {
         Self(Vec::with_capacity(capacity))
     }
@@ -96,10 +100,6 @@ impl<T: Copy> Storage for VecStorage<T> {
 
     fn length(&self) -> usize {
         self.0.len()
-    }
-
-    fn remaining(&self) -> usize {
-        self.capacity() - self.length()
     }
 
     fn trim(&mut self, len: usize) {
@@ -129,7 +129,7 @@ impl<T: Copy> Storage for VecStorage<T> {
 /// all invariants specified in [`Storage`] must be held true.
 ///
 /// In theory we can also get rid of all the overflow checks assuming invariants
-/// hold true. As a future TODO, check if it's worth it.
+/// hold true. Probably not worth it since --release skips overflow checks anyway.
 #[derive(Debug)]
 pub struct MemStorage<T, M> {
     mem: M,
@@ -148,6 +148,7 @@ impl<T: Record> OffHeapStorage<T> {
     /// # Arguments
     ///
     /// * `capacity` - Maximum capacity of this storage engine.
+    #[allow(dead_code)]
     pub(crate) fn new(capacity: usize) -> Self {
         Self {
             mem: OffHeap::alloc(capacity * T::size()),
@@ -169,9 +170,10 @@ impl<T: Record> OnHeapStorage<T> {
     /// # Arguments
     ///
     /// * `capacity` - Maximum capacity of this storage engine.
+    #[allow(dead_code)]
     pub(crate) fn new(capacity: usize) -> Self {
         Self {
-            mem: OnHeap::alloc(capacity * T::size()),
+            mem: OnHeap::alloc::<T>(capacity * T::size()),
             length: 0,
             capacity,
             phantom: PhantomData,
@@ -193,15 +195,12 @@ where
         self.length
     }
 
-    fn remaining(&self) -> usize {
-        self.capacity - self.length
-    }
-
     fn trim(&mut self, len: usize) {
         let offset = len * T::size();
         let end_offset = self.length * T::size();
 
-        // Safety: Invariant; len <= self.len()
+        // Safety
+        // * len <= self.len()
         unsafe {
             // Reference to bytes held in storage.
             let mem = self.mem.as_mut();
@@ -223,7 +222,9 @@ where
         let offset = self.length * T::size();
         let src = T::to_bytes_slice(records);
 
-        // Safety: Invariant; records.len() <= self.remaining()
+        // Safety:
+        // * records.len() > 0.
+        // * records.len() <= self.remaining()
         unsafe {
             // Reference to bytes held in storage.
             let mem = self.mem.as_mut();
@@ -246,7 +247,8 @@ where
     }
 
     fn records(&self) -> &[T] {
-        // Safety: Other invariants that make sure length tracked is correct.
+        // Safety
+        // * Invariants that make sure length tracked is correct.
         unsafe {
             // Reference to bytes held in storage.
             let mem = self.mem.as_ref();
@@ -320,11 +322,11 @@ impl OnHeap {
     /// # Arguments
     ///
     /// * `capacity` - Maximum number of bytes to allocate.
-    fn alloc(capacity: usize) -> Self {
+    fn alloc<T>(capacity: usize) -> Self {
         // Layout the describes the allocation requirements.
-        let align = align_of::<u8>();
+        let align = align_of::<T>();
         let layout = Layout::from_size_align(capacity, align)
-            .expect("Cannot create a layout for global allocator");
+            .expect("Cannot create memory layout for global allocator");
 
         // Safety
         // 1. We are properly aligning memory (which should be 1).
@@ -353,7 +355,8 @@ impl OnHeap {
 
 impl Drop for OnHeap {
     fn drop(&mut self) {
-        // Cannot initialize with invalid pointer and layout.
+        // Safety
+        // * Cannot initialize with invalid pointer and layout.
         unsafe {
             alloc::dealloc(self.ptr, self.layout);
         }
@@ -375,5 +378,102 @@ impl AsMut<[u8]> for OnHeap {
         // * Pointer is guaranteed to be initialized.
         // * length is guaranteed to be > 0.
         unsafe { slice::from_raw_parts_mut(self.ptr, self.len) }
+    }
+}
+
+#[cfg(test)]
+#[cfg(any(feature = "zerocopy", feature = "bytemuck"))]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    const CAPACITY: usize = 1024;
+
+    fn vec_storage(capacity: usize) -> VecStorage<u64> {
+        VecStorage::new(capacity)
+    }
+
+    fn on_heap_storage(capacity: usize) -> OnHeapStorage<u64> {
+        OnHeapStorage::new(capacity)
+    }
+
+    fn off_heap_storage(capacity: usize) -> OffHeapStorage<u64> {
+        OffHeapStorage::new(capacity)
+    }
+
+    #[rstest]
+    #[case(vec_storage(CAPACITY))]
+    #[case(on_heap_storage(CAPACITY))]
+    #[case(off_heap_storage(CAPACITY))]
+    fn trim<S: Storage<Record = u64>>(#[case] mut storage: S) {
+        assert_eq!(CAPACITY, storage.capacity());
+        let records: Vec<_> = (0..CAPACITY as u64).collect();
+        for batch_size in 1..1024 {
+            // Clear storage for the test run.
+            storage.clear();
+
+            // Assert starting state of storage.
+            assert_eq!(storage.length(), 0);
+            assert_eq!(storage.records(), &[]);
+            assert_eq!(storage.remaining(), CAPACITY);
+
+            // Populate storage to run trim tests.
+            assert!(storage.remaining() >= records.len());
+            storage.extend(&records);
+            assert_eq!(storage.records(), &records);
+
+            // Repeatedly trim till storage is empty.
+            for chunk in records.chunks(batch_size) {
+                // Trim just enough records to make space for new ones.
+                assert!(storage.length() >= chunk.len());
+                storage.trim(chunk.len());
+
+                // Add those records to storage.
+                assert_eq!(storage.remaining(), chunk.len());
+                storage.extend(chunk);
+            }
+
+            // Assert final state of storage.
+            assert_eq!(storage.remaining(), 0);
+            assert_eq!(storage.length(), CAPACITY);
+            assert_eq!(storage.records(), &records);
+        }
+    }
+
+    #[rstest]
+    #[case(vec_storage(CAPACITY))]
+    #[case(on_heap_storage(CAPACITY))]
+    #[case(off_heap_storage(CAPACITY))]
+    fn extend<S: Storage<Record = u64>>(#[case] mut storage: S) {
+        assert_eq!(CAPACITY, storage.capacity());
+        let records: Vec<_> = (0..CAPACITY as u64).collect();
+        for batch_size in 1..1024 {
+            // Clear storage for the test run.
+            storage.clear();
+
+            // Assert starting state of storage.
+            assert_eq!(storage.length(), 0);
+            assert_eq!(storage.records(), &[]);
+            assert_eq!(storage.remaining(), CAPACITY);
+
+            // Extend storage by appending new records.
+            let mut length = 0;
+            for chunk in records.chunks(batch_size) {
+                // Append the new batch of records.
+                assert!(storage.remaining() >= chunk.len());
+                storage.extend(chunk);
+                length += chunk.len();
+
+                // Assert current state.
+                assert_eq!(storage.length(), length);
+                assert_eq!(storage.records(), &records[..length]);
+                assert_eq!(storage.remaining(), CAPACITY - length);
+            }
+
+            // Assert final state.
+            assert_eq!(storage.remaining(), 0);
+            assert_eq!(storage.length(), CAPACITY);
+            assert_eq!(storage.records(), &records);
+        }
     }
 }

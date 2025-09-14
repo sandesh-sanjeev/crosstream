@@ -12,39 +12,30 @@ jobs:
     name: build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout sources 
-        uses: actions/checkout@v4
-
-      - name: Set up cargo cache
-        uses: actions/cache@v4
-        continue-on-error: false
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          path: |
-            ~/.cargo/
-            ./target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          toolchain: stable
+          components: clippy, rustfmt
 
-      - name: Check cargo fmt
+      - name: Check Rust version
+        run: cargo --version
+
+      - name: Deny cargo fmt warnings
         run: cargo fmt --check
 
-      - name: Clippy
+      - name: Deny cargo clippy warnings
         run: cargo clippy -- --deny warnings --no-deps
 
-      - name: Build
+      - name: Build crate
         run: cargo build --verbose
-
-      - name: Run tests
-        env:
-          RUST_BACKTRACE: 1
-        run: cargo test --verbose
 
       - name: Test coverage reporting
         env:
           RUST_BACKTRACE: 1
         run: |
           cargo install cargo-tarpaulin
-          time cargo tarpaulin --ignore-tests -o Html -o Lcov --timeout 240 --engine llvm
+          time cargo tarpaulin
 
       - name: Coveralls
         uses: coverallsapp/github-action@v2

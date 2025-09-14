@@ -1,14 +1,27 @@
-[workspace]
-resolver = "3"
-members = ["crosstream-ring"]
+[package]
+name = "crosstream"
+version = "0.1.0"
+edition = "2024"
 
-[profile.fuzz]
-inherits = "dev"
-opt-level = 3
-incremental = false
-codegen-units = 1
+[features]
+zerocopy = ["dep:zerocopy"]
+bytemuck = ["dep:bytemuck"]
 
-[profile.bench]
-opt-level = 3
-lto = "thin"
-debug = true
+[dependencies]
+# For allocating off-heap memory.
+memmap2 = "0.9"
+
+# For byte to record transmutations.
+zerocopy = { version = "0.8", optional = true, features = ["derive"] }
+bytemuck = { version = "1.23", optional = true, features = [
+    "derive",
+    "must_cast",
+    "min_const_generics",
+] }
+
+[dev-dependencies]
+# For property based tests.
+bolero = "0.13"
+
+# For parameterized tests.
+rstest = "0.26"
