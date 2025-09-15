@@ -2,10 +2,26 @@
 //!
 //! Crosstream provides different types of ring buffers along with primitives to build them yourself.
 //!
+//! ## SeqRing
+//!
+//! A [`SeqRing`] is a ring buffer that holds sequential records of type [`SeqRecord`]. It is like any
+//! other ring buffer, except it is custom built for efficient query via record sequence numbers.
+//!
+//! ### Storage engine
+//!
+//! A [`SeqRing`] provides different types of storage engines based on your needs.
+//!
+//! * [`VecSeqRing`] - A SeqRing that uses [`Vec`] to store records.
+//! * [`OnHeapSeqRing`] - A SeqRing that uses on heap memory via global allocator to store records.
+//! * [`OffHeapSeqRing`] - A SeqRing that uses off heap memory via anonymous mmap to store records.
+//!
 //! ## Record
 //!
 //! A [`Record`] is a fixed size element that can be stored in a ring buffer. It has compile
-//! time known size and alignment, which allows for certain types of optimization.
+//! time known size and alignment. This allows for certain types of optimization, including
+//! zero-copy transmutation turning most ring buffer operations into pure memcpy.
+//!
+//! A [`SeqRecord`] is a special type of [`Record`] that has a sequence number attached to it.
 //!
 //! ### Features
 //!
@@ -24,11 +40,13 @@
 // Internally exposed modules.
 pub(crate) mod buf;
 pub(crate) mod record;
+pub(crate) mod ring;
 pub(crate) mod storage;
 
 // Externally exposed types.
 pub use buf::QueryBuf;
 pub use record::{Record, SeqRecord};
+pub use ring::{AppendError, OffHeapSeqRing, OnHeapSeqRing, SeqRing, VecSeqRing};
 pub use storage::{
     MemStorage, OffHeap, OffHeapStorage, OnHeap, OnHeapStorage, Storage, VecStorage,
 };

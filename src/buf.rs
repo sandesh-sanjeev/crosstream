@@ -37,7 +37,6 @@ impl<T: SeqRecord> QueryBuf<T> {
     }
 
     /// Number of records that can be appended without overflow.
-    #[allow(dead_code)]
     pub(crate) fn remaining(&self) -> usize {
         self.0.remaining()
     }
@@ -52,13 +51,11 @@ impl<T: SeqRecord> QueryBuf<T> {
     /// # Arguments
     ///
     /// * `records` - Records to append.
-    #[allow(dead_code)]
     pub(crate) fn extend(&mut self, records: &[T]) {
         self.0.extend(records);
     }
 
     /// Clear all records from [`Buf`].
-    #[allow(dead_code)]
     pub(crate) fn clear(&mut self) {
         self.0.clear();
     }

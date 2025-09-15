@@ -6,6 +6,8 @@
 
 [![Coverage Status](https://coveralls.io/repos/github/sandesh-sanjeev/crosstream/badge.svg?branch=master)](https://coveralls.io/github/sandesh-sanjeev/crosstream?branch=master)
 
+Note that these test coverage numbers are not quite accurate.
+
 ## Security
 
 Crates makes liberal use of `unsafe` for better perf. However we use `unsafe`

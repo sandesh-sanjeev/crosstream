@@ -85,7 +85,6 @@ impl<T: Record + Copy> VecStorage<T> {
     /// # Arguments
     ///
     /// * `capacity` - Maximum capacity of this storage engine.
-    #[allow(dead_code)]
     pub(crate) fn new(capacity: usize) -> Self {
         Self(Vec::with_capacity(capacity))
     }
@@ -148,7 +147,6 @@ impl<T: Record> OffHeapStorage<T> {
     /// # Arguments
     ///
     /// * `capacity` - Maximum capacity of this storage engine.
-    #[allow(dead_code)]
     pub(crate) fn new(capacity: usize) -> Self {
         Self {
             mem: OffHeap::alloc(capacity * T::size()),
@@ -170,7 +168,6 @@ impl<T: Record> OnHeapStorage<T> {
     /// # Arguments
     ///
     /// * `capacity` - Maximum capacity of this storage engine.
-    #[allow(dead_code)]
     pub(crate) fn new(capacity: usize) -> Self {
         Self {
             mem: OnHeap::alloc::<T>(capacity * T::size()),

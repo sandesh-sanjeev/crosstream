@@ -28,7 +28,10 @@ jobs:
         run: cargo clippy -- --deny warnings --no-deps
 
       - name: Build crate
-        run: cargo build --verbose
+        run: |
+          cargo build
+          cargo build --features zerocopy
+          cargo build --features bytemuck
 
       - name: Test coverage reporting
         env:
