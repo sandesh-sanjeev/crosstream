@@ -47,3 +47,33 @@ $ MIRIFLAGS=-Zmiri-disable-isolation cargo miri test --features bytemuck
 # Remove workspace override.
 $ rustup override remove
 ```
+
+## Benchmarks
+
+On my Apple M1 Pro with 32 GB Memory.
+
+* Size of record is 8 bytes (u64).
+* About 8GB of total space for ring buffer (16_777_216 * 64).
+* Append requires expensive input setup, making observations not very accurate.
+
+```bash
+$ cargo bench --features zerocopy
+Gnuplot not found, using plotters backend
+Vec/append              time:   [416.51 ns 436.75 ns 461.96 ns]
+                        thrpt:  [35.466 GB/s 37.513 GB/s 39.336 GB/s]
+
+Vec/query               time:   [504.24 ns 507.03 ns 510.31 ns]
+                        thrpt:  [32.106 GB/s 32.313 GB/s 32.492 GB/s]
+
+OnHeap/append           time:   [377.80 ns 383.03 ns 388.54 ns]
+                        thrpt:  [42.168 GB/s 42.775 GB/s 43.367 GB/s]
+
+OnHeap/query            time:   [503.32 ns 504.69 ns 506.40 ns]
+                        thrpt:  [32.354 GB/s 32.464 GB/s 32.552 GB/s]
+
+OffHeap/append          time:   [438.49 ns 476.71 ns 532.09 ns]
+                        thrpt:  [30.792 GB/s 34.369 GB/s 37.364 GB/s]
+
+OffHeap/query           time:   [514.11 ns 517.29 ns 520.72 ns]
+                        thrpt:  [31.464 GB/s 31.673 GB/s 31.868 GB/s]
+```

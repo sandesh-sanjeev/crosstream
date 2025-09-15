@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
+benchmark = ["zerocopy"]
 zerocopy = ["dep:zerocopy"]
 bytemuck = ["dep:bytemuck"]
 
@@ -28,3 +29,12 @@ bolero = "0.13"
 
 # For parameterized tests.
 rstest = "0.26"
+
+# For benchmark harness.
+criterion = "0.7"
+
+# Disable default benchmark harness.
+[[bench]]
+name = "ring"
+harness = false
+required-features = ["benchmark"]
