@@ -6,7 +6,8 @@
 
 [![Coverage Status](https://coveralls.io/repos/github/sandesh-sanjeev/crosstream/badge.svg?branch=master)](https://coveralls.io/github/sandesh-sanjeev/crosstream?branch=master)
 
-Note that these test coverage numbers are not quite accurate.
+Note that these test coverage numbers are not quite accurate. I haven't figured out
+how to filter out benchmark functions from coverage yet either.
 
 ## Security
 
@@ -57,23 +58,22 @@ On my Apple M1 Pro with 32 GB Memory.
 * Append requires expensive input setup, making observations not very accurate.
 
 ```bash
-$ cargo bench --features zerocopy
-Gnuplot not found, using plotters backend
-Vec/append              time:   [416.51 ns 436.75 ns 461.96 ns]
-                        thrpt:  [35.466 GB/s 37.513 GB/s 39.336 GB/s]
+$ cargo bench --features benchmark
+Vec/append              time:   [391.84 ns 394.57 ns 397.54 ns]
+                        thrpt:  [41.214 GB/s 41.524 GB/s 41.813 GB/s]
 
-Vec/query               time:   [504.24 ns 507.03 ns 510.31 ns]
-                        thrpt:  [32.106 GB/s 32.313 GB/s 32.492 GB/s]
+Vec/query               time:   [527.20 ns 530.77 ns 534.47 ns]
+                        thrpt:  [30.655 GB/s 30.869 GB/s 31.077 GB/s]
 
-OnHeap/append           time:   [377.80 ns 383.03 ns 388.54 ns]
-                        thrpt:  [42.168 GB/s 42.775 GB/s 43.367 GB/s]
+OnHeap/append           time:   [401.79 ns 406.18 ns 411.25 ns]
+                        thrpt:  [39.840 GB/s 40.337 GB/s 40.777 GB/s]
 
-OnHeap/query            time:   [503.32 ns 504.69 ns 506.40 ns]
-                        thrpt:  [32.354 GB/s 32.464 GB/s 32.552 GB/s]
+OnHeap/query            time:   [526.51 ns 529.39 ns 532.52 ns]
+                        thrpt:  [30.767 GB/s 30.949 GB/s 31.118 GB/s]
 
-OffHeap/append          time:   [438.49 ns 476.71 ns 532.09 ns]
-                        thrpt:  [30.792 GB/s 34.369 GB/s 37.364 GB/s]
+OffHeap/append          time:   [425.32 ns 433.74 ns 445.10 ns]
+                        thrpt:  [36.810 GB/s 37.773 GB/s 38.522 GB/s]
 
-OffHeap/query           time:   [514.11 ns 517.29 ns 520.72 ns]
-                        thrpt:  [31.464 GB/s 31.673 GB/s 31.868 GB/s]
+OffHeap/query           time:   [506.60 ns 508.22 ns 510.23 ns]
+                        thrpt:  [32.111 GB/s 32.238 GB/s 32.341 GB/s]
 ```

@@ -2,7 +2,7 @@ use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_mai
 use crosstream::{
     OffHeapSeqRing, OnHeapSeqRing, QueryBuf, Record, SeqRecord, SeqRing, Storage, VecSeqRing,
 };
-use std::cell::Cell;
+use std::{cell::Cell, time::Duration};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 // About 8 GB of memory for benchmarks.
@@ -22,7 +22,13 @@ impl SeqRecord for Log {
 }
 
 criterion_main!(benches);
-criterion_group!(benches, vec_bench, on_heap_bench, off_heap_bench);
+criterion_group! {
+    name = benches;
+    config = Criterion::default()
+        .warm_up_time(Duration::from_secs(3))
+        .measurement_time(Duration::from_secs(15));
+    targets = vec_bench, on_heap_bench, off_heap_bench
+}
 
 fn vec_bench(c: &mut Criterion) {
     run_bench(c, VecSeqRing::new(SLOT_CAPACITY, SLOTS, 0), "Vec");
