@@ -38,3 +38,8 @@ criterion = "0.7"
 name = "ring"
 harness = false
 required-features = ["benchmark"]
+
+# Preserve debug symbols for profiling.
+[profile.bench]
+inherits = "release"
+debug = true

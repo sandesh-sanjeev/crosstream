@@ -56,6 +56,7 @@ On my Apple M1 Pro with 32 GB Memory.
 * Size of record is 8 bytes (u64).
 * About 8GB of total space for ring buffer (16_777_216 * 64).
 * Append requires expensive input setup, making observations not very accurate.
+* Obviously means nothing unless you test it yourself.
 
 ```bash
 $ cargo bench --features benchmark
@@ -76,4 +77,14 @@ OffHeap/append          time:   [425.32 ns 433.74 ns 445.10 ns]
 
 OffHeap/query           time:   [506.60 ns 508.22 ns 510.23 ns]
                         thrpt:  [32.111 GB/s 32.238 GB/s 32.341 GB/s]
+```
+
+### Profiler
+
+```bash
+# Install cargo flamegraph.
+$ cargo install flamegraph
+
+# Run benchmarks with profiler.
+$ cargo flamegraph --bench ring --features benchmark -- --bench --profile-time 60
 ```

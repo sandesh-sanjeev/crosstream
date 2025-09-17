@@ -10,3 +10,4 @@ Cargo.lock
 # Do not check in coverage results
 lcov.info
 tarpaulin-report.html
+flamegraph.svg

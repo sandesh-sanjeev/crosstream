@@ -25,8 +25,8 @@ criterion_main!(benches);
 criterion_group! {
     name = benches;
     config = Criterion::default()
-        .warm_up_time(Duration::from_secs(3))
-        .measurement_time(Duration::from_secs(15));
+        .warm_up_time(Duration::from_secs(5))
+        .measurement_time(Duration::from_secs(60));
     targets = vec_bench, on_heap_bench, off_heap_bench
 }
 
