@@ -39,12 +39,14 @@
 
 // Internally exposed modules.
 pub(crate) mod buf;
+pub(crate) mod experiment;
 pub(crate) mod record;
 pub(crate) mod ring;
 pub(crate) mod storage;
 
 // Externally exposed types.
 pub use buf::QueryBuf;
+pub use experiment::hadron::{Hadron, Item};
 pub use record::{Record, SeqRecord};
 pub use ring::{AppendError, OffHeapSeqRing, OnHeapSeqRing, SeqRing, VecSeqRing};
 pub use storage::{

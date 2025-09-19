@@ -9,6 +9,9 @@ zerocopy = ["dep:zerocopy"]
 bytemuck = ["dep:bytemuck"]
 
 [dependencies]
+# To fetch page size from OS.
+page_size = "0.6"
+
 # For allocating off-heap memory.
 memmap2 = "0.9"
 
