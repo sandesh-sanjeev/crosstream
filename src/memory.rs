@@ -37,8 +37,6 @@ impl Heap {
     ///
     /// * `capacity` - Maximum number of items of type `T` the allocation should accommodate.
     pub(crate) fn alloc<T>(capacity: usize) -> Heap {
-        assert!(capacity > 0, "Zero sized memory cannot be allocated");
-
         // Size and alignment of the type held in ring buffer.
         let size = size_of::<T>();
         let align = align_of::<T>();

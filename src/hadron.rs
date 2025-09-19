@@ -1,7 +1,7 @@
 //! Definition of a ring buffer.
 
 use crate::{Heap, Memory};
-use std::marker::PhantomData;
+use std::{marker::PhantomData, mem::needs_drop};
 
 /// Fixed sized type with compile time known layout, size and alignment.
 ///
@@ -36,7 +36,8 @@ pub trait Item: Sized + Copy {
 /// It is designed for high performance use cases and makes trade-offs to achieve it.
 /// Bulk append is guaranteed to be exactly 2 memcpy operations. It provides a reference
 /// to items stored in the ring buffer in constant time. The big trade-off here is that
-/// only elements of type [`Item`] can be appended into the ring buffer.
+/// only elements of type [`Item`] can be appended into the ring buffer and that element
+/// needs to be trivially droppable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hadron<T, Alloc = Heap> {
     // Index where the next append will occur.
@@ -66,12 +67,14 @@ impl<T: Item> Hadron<T> {
     ///
     /// * Ring buffer must have at least one item.
     /// * Number of items in bytes should be <= isize::MAX.
+    /// * Only trivially droppable types supported.
     ///
     /// # Arguments
     ///
     /// * `capacity` - Maximum number of items this ring buffer can hold.
     pub fn with_capacity(capacity: usize) -> Self {
-        assert!(capacity > 0, "Hadron must contain at least one item");
+        assert!(capacity > 0, "Must contain at least one item");
+        assert!(!needs_drop::<T>(), "Only trivially droppable types");
 
         Self {
             capacity,
@@ -150,64 +153,9 @@ impl<T: Item, Alloc: Memory> Hadron<T, Alloc> {
     }
 
     /// An iterator to iterate through all the items currently in ring buffer.
-    pub fn iter(&self) -> ItemIterator<'_, T> {
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
         let (head, tail) = self.as_slices();
-        ItemIterator {
-            head,
-            tail,
-            next: Index::Head(0),
-        }
-    }
-}
-
-/// Index to an item in the ring buffer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Index {
-    Head(usize),
-    Tail(usize),
-}
-
-/// An iterator to iterate through items in a ring buffer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ItemIterator<'a, T> {
-    // Reference to the items currently held in the ring buffer.
-    head: &'a [T],
-    tail: &'a [T],
-
-    // Next index to read records from.
-    next: Index,
-}
-
-impl<'a, T: Item> Iterator for ItemIterator<'a, T> {
-    type Item = &'a T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.next {
-            // Reached end of the iterator, nothing more to return.
-            Index::Tail(index) if index == self.tail.len() => None,
-            Index::Head(index) if index == self.head.len() && self.tail.is_empty() => None,
-
-            // Next read from tail.
-            // Safety: Check above to make sure read is not out of bounds.
-            Index::Tail(index) => {
-                self.next = Index::Tail(index + 1);
-                unsafe { Some(self.tail.get_unchecked(index)) }
-            }
-
-            // Next read from the start of the tail.
-            // Safety: Check above to make sure read is not out of bounds.
-            Index::Head(index) if index == self.head.len() => {
-                self.next = Index::Tail(1);
-                unsafe { Some(self.tail.get_unchecked(0)) }
-            }
-
-            // Read read from head.
-            // Safety: Check above to make sure read is not out of bounds.
-            Index::Head(index) => {
-                self.next = Index::Head(index + 1);
-                unsafe { Some(self.head.get_unchecked(index)) }
-            }
-        }
+        head.iter().chain(tail.iter())
     }
 }
 

@@ -1,16 +1,16 @@
 //! Definition of benchmarks.
 
-use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use crosstream::{Hadron, Item};
 use ringbuffer::AllocRingBuffer;
-use std::{cell::Cell, time::Duration};
+use std::time::Duration;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-// About 4 GB of memory for benchmarks.
-const CAPACITY: usize = 536_870_912;
+// About 8 GB of memory for benchmarks.
+const CAPACITY: usize = 1_073_741_824;
 
-// Number of records to append/query from ring.
-const BATCH_SIZE: usize = 1024 * 2;
+// Base batch size, different batch sizes will be multiples of this number.
+const BATCH_SIZE: usize = 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromBytes, IntoBytes, Immutable, KnownLayout)]
 struct Log(u64);
@@ -52,36 +52,33 @@ criterion_group! {
 macro_rules! run_bench {
     ($name:ident, $ring:ty, $id:literal) => {
         fn $name(c: &mut Criterion) {
+            // Benchmark group for the benchmark.
+            // This captures the different ring buffer implementations.
+            let mut group = c.benchmark_group($id);
+
             // Create a ring buffer.
             let mut ring = <$ring>::with_capacity(CAPACITY);
 
-            // Define the append tests.
-            let mut group = c.benchmark_group($id);
-            group.throughput(Throughput::BytesDecimal((BATCH_SIZE * Log::SIZE) as _));
+            // Pre-populate the ring buffer with records.
+            // This makes sure page faults don't occur during benchmarks.
+            let items: Vec<_> = (0..=BATCH_SIZE as u64).map(Log).collect();
+            for _ in (0..(CAPACITY / BATCH_SIZE)) {
+                ring.append_from_slice(&items);
+            }
 
-            // Run the benchmark.
-            let prev_seq_no = Cell::new(0);
-            group.bench_function("append", |bencher| {
-                bencher.iter_batched(
-                    || {
-                        // Range of records to create.
-                        let start_seq_no = prev_seq_no.get() + 1;
-                        let end_seq_no = start_seq_no + BATCH_SIZE as u64;
+            // Run tests with different batch sizes.
+            for i in [2, 5, 10] {
+                // Batch size for the test.
+                let batch_size = BATCH_SIZE * i;
 
-                        // For next iteration.
-                        prev_seq_no.set(end_seq_no);
+                // Tests to batch append into the ring buffer.
+                let items: Vec<_> = (1..=batch_size as u64).map(Log).collect();
+                group.throughput(Throughput::BytesDecimal((batch_size * Log::SIZE) as _));
+                group.bench_function(format!("append_from_slice/{batch_size}"), |bencher| {
+                    bencher.iter(|| ring.append_from_slice(&items))
+                });
+            }
 
-                        // Records to insert into ring buffer.
-                        (start_seq_no..=end_seq_no).map(Log).collect::<Vec<_>>()
-                    },
-                    |records| {
-                        // Append records into the ring buffer.
-                        ring.append_from_slice(&records);
-                    },
-                    // Large input to help with memory usage.
-                    BatchSize::LargeInput,
-                )
-            });
             group.finish();
         }
     };

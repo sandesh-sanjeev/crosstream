@@ -47,18 +47,18 @@ $ rustup override remove
 On my Apple M1 Pro with 32 GB Memory.
 
 * Size of record is 8 bytes (u64).
-* About 8GB of total space for ring buffer (16_777_216 * 64).
-* Append requires expensive input setup, making observations not very accurate.
-* Obviously means nothing unless you test it yourself.
+* About 8GB of total space for ring buffer. Holds just over a billion records.
+* Obviously means nothing unless you test it yourself for your use case.
 * Comparison with another popular [ring buffer](https://docs.rs/ringbuffer/latest/ringbuffer/struct.AllocRingBuffer.htm) crate with similar features.
 
 ```bash
 $ cargo bench
-hadron/append           time:   [505.77 ns 556.44 ns 610.62 ns]
-                        thrpt:  [26.832 GB/s 29.444 GB/s 32.394 GB/s]
+hadron/append           time:   [388.88 ns 408.76 ns 430.02 ns]
+                        thrpt:  [38.101 GB/s 40.082 GB/s 42.131 GB/s]
 
-oracle/append           time:   [1.6799 µs 1.7338 µs 1.7938 µs]
-                        thrpt:  [9.1337 GB/s 9.4496 GB/s 9.7530 GB/s]
+
+oracle/append           time:   [3.8921 µs 3.9396 µs 3.9812 µs]
+                        thrpt:  [4.1153 GB/s 4.1588 GB/s 4.2095 GB/s]
 ```
 
 ### Profiler
