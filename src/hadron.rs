@@ -1,6 +1,17 @@
-use crate::experiment::memory::{Heap, Memory};
+//! Definition of a ring buffer.
+
+use crate::{Heap, Memory};
 use std::marker::PhantomData;
 
+/// Fixed sized type with compile time known layout, size and alignment.
+///
+/// The basic idea is that this type provides support for zero-copy transmutation
+/// between a record and byte slice. You probably don't want to handwrite these
+/// yourself because it's quite error prone. There are crates that allows one to
+/// safely perform this transmutation.
+///
+/// * [`zerocopy`](https://docs.rs/zerocopy/latest/zerocopy/)
+/// * [`bytemuck`](https://docs.rs/bytemuck/latest/bytemuck/)
 pub trait Item: Sized + Copy {
     /// Number of bytes needed to represent this type.
     const SIZE: usize;
@@ -20,6 +31,12 @@ pub trait Item: Sized + Copy {
     fn from_byte_slice(bytes: &[u8]) -> &[Self];
 }
 
+/// Hadron is a fixed size ring buffer.
+///
+/// It is designed for high performance use cases and makes trade-offs to achieve it.
+/// Bulk append is guaranteed to be exactly 2 memcpy operations. It provides a reference
+/// to items stored in the ring buffer in constant time. The big trade-off here is that
+/// only elements of type [`Item`] can be appended into the ring buffer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hadron<T, Alloc = Heap> {
     // Index where the next append will occur.
@@ -93,50 +110,29 @@ impl<T: Item, Alloc: Memory> Hadron<T, Alloc> {
             None => (items, Default::default()),
         };
 
+        // Split the backing memory into discrete writeable chunks.
+        let mid = self.next * T::SIZE;
+        let (tail, head) = self.memory.as_mut().split_at_mut(mid);
+
         // Write the first batch.
-        let first_bytes = T::to_bytes_slice(first);
-        let first_start = self.next * T::SIZE;
-        let first_end = first_start + first_bytes.len();
-        self.memory.as_mut()[first_start..first_end].copy_from_slice(first_bytes);
+        let head_bytes = T::to_bytes_slice(first);
+        head[..head_bytes.len()].copy_from_slice(head_bytes);
 
         // Write the second batch.
-        let second_bytes = T::to_bytes_slice(second);
-        let second_end = second_bytes.len();
-        self.memory.as_mut()[..second_end].copy_from_slice(second_bytes);
+        let tail_bytes = T::to_bytes_slice(second);
+        tail[..tail_bytes.len()].copy_from_slice(tail_bytes);
 
         // Update state.
-        self.length = std::cmp::min(self.length + items.len(), self.capacity);
         self.next = (self.next + items.len()) % self.capacity;
+        self.length = std::cmp::min(self.length + items.len(), self.capacity);
     }
 
-    /// Query items starting from the beginning of the ring buffer.
+    /// Get a reference to items currently stored in the ring buffer.
     ///
-    /// Items are returned in the same order that then were appended into the ring buffer.
-    /// Note that the buffer to write items into will be cleared to make space for records,
-    /// even if there were no matching records. However no heap allocations occur, we only
-    /// write to buffers capacity.
-    ///
-    /// # Arguments
-    ///
-    /// * `buf` - Buffer to copy items into.
-    pub fn query_from_trim(&self, buf: &mut Vec<T>) {
-        buf.clear(); // Make space for new records.
-
-        // Get a reference to all the items currently held in the ring buffer.
-        let (head, tail) = self.item_slices();
-
-        // Copy records from head of the ring buffer.
-        let len = std::cmp::min(head.len(), buf.capacity());
-        buf.extend(&head[..len]);
-
-        // Copy records from tail of the ring buffer.
-        let remaining = buf.capacity() - len;
-        let len = std::cmp::min(tail.len(), remaining);
-        buf.extend(&tail[..len]);
-    }
-
-    /// Fetch items records currently stored in the ring buffer.
-    fn item_slices(&self) -> (&[T], &[T]) {
+    /// Since the ring buffer can wrap around, items in the ring buffer are stored
+    /// in two non-overlapping discrete chunks of items. When the ring buffer is not
+    /// full, tail is always empty.
+    pub fn as_slices(&self) -> (&[T], &[T]) {
         // If the ring buffer has not wrapped around, then the starting index is always 0.
         let memory = self.memory.as_ref();
         if self.length < self.capacity {
@@ -152,14 +148,75 @@ impl<T: Item, Alloc: Memory> Hadron<T, Alloc> {
             (T::from_byte_slice(first), T::from_byte_slice(second))
         }
     }
+
+    /// An iterator to iterate through all the items currently in ring buffer.
+    pub fn iter(&self) -> ItemIterator<'_, T> {
+        let (head, tail) = self.as_slices();
+        ItemIterator {
+            head,
+            tail,
+            next: Index::Head(0),
+        }
+    }
+}
+
+/// Index to an item in the ring buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Index {
+    Head(usize),
+    Tail(usize),
+}
+
+/// An iterator to iterate through items in a ring buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ItemIterator<'a, T> {
+    // Reference to the items currently held in the ring buffer.
+    head: &'a [T],
+    tail: &'a [T],
+
+    // Next index to read records from.
+    next: Index,
+}
+
+impl<'a, T: Item> Iterator for ItemIterator<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.next {
+            // Reached end of the iterator, nothing more to return.
+            Index::Tail(index) if index == self.tail.len() => None,
+            Index::Head(index) if index == self.head.len() && self.tail.is_empty() => None,
+
+            // Next read from tail.
+            // Safety: Check above to make sure read is not out of bounds.
+            Index::Tail(index) => {
+                self.next = Index::Tail(index + 1);
+                unsafe { Some(self.tail.get_unchecked(index)) }
+            }
+
+            // Next read from the start of the tail.
+            // Safety: Check above to make sure read is not out of bounds.
+            Index::Head(index) if index == self.head.len() => {
+                self.next = Index::Tail(1);
+                unsafe { Some(self.tail.get_unchecked(0)) }
+            }
+
+            // Read read from head.
+            // Safety: Check above to make sure read is not out of bounds.
+            Index::Head(index) => {
+                self.next = Index::Head(index + 1);
+                unsafe { Some(self.head.get_unchecked(index)) }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
-#[cfg(feature = "zerocopy")]
 mod tests {
     use super::*;
     use bolero::{TypeGenerator, check};
-    use std::collections::VecDeque;
+    use ringbuffer::{AllocRingBuffer, RingBuffer};
+    use rstest::rstest;
     use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
     #[derive(
@@ -184,112 +241,46 @@ mod tests {
         }
 
         fn from_byte_slice(bytes: &[u8]) -> &[Self] {
-            <[Self]>::ref_from_bytes(bytes)
-                .expect("Should be able to transmute byte slice to a slice of items")
+            <[Self]>::ref_from_bytes(bytes).expect("Should transmute back to items")
         }
     }
 
-    struct RefHadron<T> {
-        capacity: usize,
-        deque: VecDeque<T>,
-    }
+    /// A reference implementation of ring buffer from a popular crate.
+    struct Oracle<T>(AllocRingBuffer<T>);
 
-    impl<T: Item> RefHadron<T> {
-        fn new(capacity: usize) -> Self {
-            Self {
-                capacity,
-                deque: VecDeque::with_capacity(capacity),
-            }
+    impl<T: Item> Oracle<T> {
+        fn with_capacity(capacity: usize) -> Self {
+            Self(AllocRingBuffer::new(capacity))
         }
 
         fn append_from_slice(&mut self, items: &[T]) {
-            for item in items {
-                // Clear space for the new item.
-                if self.deque.len() == self.capacity {
-                    self.deque.pop_front();
-                }
-
-                // Append the new item into the ring buffer.
-                self.deque.push_back(*item);
-            }
-        }
-
-        fn query_from_trim(&mut self, buf: &mut Vec<T>) {
-            // Make space for new items.
-            buf.clear();
-
-            for item in self.deque.iter() {
-                // Quit if we have collected enough items.
-                if buf.len() == buf.capacity() {
-                    break;
-                }
-
-                // Collect the item.
-                buf.push(*item);
-            }
+            self.0.extend(items.iter().map(|item| *item));
         }
     }
 
-    #[test]
-    fn state_machine() {
+    #[rstest]
+    #[case(32)]
+    #[case(512)]
+    #[case(1024)]
+    fn state_machine(#[case] capacity: usize) {
         check!()
             .with_type::<Vec<Vec<Log>>>()
             .for_each(|operations| {
-                let mut hadron = Hadron::with_capacity(32);
-                let mut ref_hadron = RefHadron::new(32);
+                // Ring buffers for equivalence testing.
+                let mut hadron = Hadron::with_capacity(capacity);
+                let mut oracle = Oracle::with_capacity(capacity);
 
+                // Process the batch of items.
                 for items in operations {
+                    // Copy the batch of items into the ring buffer.
                     hadron.append_from_slice(items);
-                    ref_hadron.append_from_slice(items);
+                    oracle.append_from_slice(items);
+
+                    // Make sure items are the same between the ring buffers.
+                    let hadron_items: Vec<_> = hadron.iter().collect();
+                    let oracle_items: Vec<_> = oracle.0.iter().collect();
+                    assert_eq!(hadron_items, oracle_items);
                 }
-
-                let mut hadron_buf = Vec::with_capacity(32);
-                hadron.query_from_trim(&mut hadron_buf);
-
-                let mut ref_hadron_buf = Vec::with_capacity(32);
-                ref_hadron.query_from_trim(&mut ref_hadron_buf);
-
-                assert_eq!(hadron_buf, ref_hadron_buf);
             });
-    }
-
-    #[test]
-    fn experimental_ring() {
-        // Initialize the ring buffer.
-        let mut hadron = Hadron::with_capacity(1024);
-
-        // Test records to append into the ring buffer.
-        let records: Vec<Log> = (0..=2048).map(Log).collect();
-
-        // Write records in chunks.
-        for chunk in records.chunks(64) {
-            hadron.append_from_slice(chunk);
-        }
-    }
-
-    #[test]
-    fn query_from_trim() {
-        // Initialize the ring buffer.
-        let mut hadron = Hadron::with_capacity(1024);
-
-        // Query for records from the ring buffer.
-        let mut buf = Vec::with_capacity(1024);
-        hadron.query_from_trim(&mut buf);
-
-        // Populate ring buffer with logs.
-        let logs: Vec<_> = (1..=1024 as u64).map(Log).collect();
-        hadron.append_from_slice(&logs);
-
-        // Query for records with different batch sizes.
-        for batch_size in (256..=1024).step_by(256) {
-            // Buffer to query for records from the ring.
-            let mut buf = Vec::with_capacity(batch_size);
-
-            // Query from the very beginning.
-            hadron.query_from_trim(&mut buf);
-
-            // Make sure expected records were returned.
-            assert_eq!(&logs[..batch_size], &buf);
-        }
     }
 }

@@ -3,26 +3,7 @@ name = "crosstream"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-benchmark = ["zerocopy"]
-zerocopy = ["dep:zerocopy"]
-bytemuck = ["dep:bytemuck"]
-
 [dependencies]
-# To fetch page size from OS.
-page_size = "0.6"
-
-# For allocating off-heap memory.
-memmap2 = "0.9"
-
-# For byte to record transmutations.
-zerocopy = { version = "0.8", optional = true, features = ["derive"] }
-bytemuck = { version = "1.23", optional = true, features = [
-    "derive",
-    "must_cast",
-    "min_const_generics",
-] }
-
 # For nicer error handling.
 thiserror = "2.0"
 
@@ -36,11 +17,16 @@ rstest = "0.26"
 # For benchmark harness.
 criterion = "0.7"
 
+# For a reference implementation of ring buffer.
+ringbuffer = { version = "0.16", features = ["alloc"] }
+
+# For byte to record transmutations.
+zerocopy = { version = "0.8", features = ["derive"] }
+
 # Disable default benchmark harness.
 [[bench]]
-name = "ring"
+name = "hadron"
 harness = false
-required-features = ["benchmark"]
 
 # Preserve debug symbols for profiling.
 [profile.bench]

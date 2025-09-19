@@ -30,8 +30,6 @@ jobs:
       - name: Build crate
         run: |
           cargo build
-          cargo build --features zerocopy
-          cargo build --features bytemuck
 
       - name: Test coverage reporting
         env:
