@@ -38,6 +38,8 @@ impl<T> Heap<T> {
     ///
     /// * `cap` - Maximum number of items this allocation was accommodate.
     pub(crate) fn alloc(cap: usize) -> Self {
+        assert!(cap > 0, "zero length memory cannot be allocated");
+
         // Layout of memory to allocate for the ring buffer.
         let Ok(layout) = Layout::array::<T>(cap) else {
             panic!("Trying to allocate more than isize::MAX");

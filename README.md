@@ -51,28 +51,29 @@ On my Apple M1 Pro with 32 GB Memory.
 ```bash
 $ cargo bench
 hadron/append_from_slice/2048
-                        time:   [514.61 ns 531.95 ns 546.95 ns]
-                        thrpt:  [29.955 GB/s 30.800 GB/s 31.838 GB/s]
+                        time:   [451.31 ns 475.34 ns 498.59 ns]
+                        thrpt:  [32.861 GB/s 34.468 GB/s 36.303 GB/s]
 
 hadron/append_from_slice/5120
-                        time:   [1.3023 µs 1.3266 µs 1.3514 µs]
-                        thrpt:  [30.309 GB/s 30.875 GB/s 31.452 GB/s]
+                        time:   [1.1388 µs 1.1942 µs 1.2500 µs]
+                        thrpt:  [32.769 GB/s 34.299 GB/s 35.967 GB/s]
 
 hadron/append_from_slice/10240
-                        time:   [2.8596 µs 2.9025 µs 2.9421 µs]
-                        thrpt:  [27.844 GB/s 28.224 GB/s 28.648 GB/s]
+                        time:   [2.1686 µs 2.3038 µs 2.4395 µs]
+                        thrpt:  [33.581 GB/s 35.559 GB/s 37.776 GB/s]
 
 oracle/append_from_slice/2048
-                        time:   [3.5775 µs 3.6246 µs 3.6700 µs]
-                        thrpt:  [4.4643 GB/s 4.5202 GB/s 4.5797 GB/s]
+                        time:   [3.8836 µs 3.9204 µs 3.9545 µs]
+                        thrpt:  [4.1431 GB/s 4.1791 GB/s 4.2188 GB/s]
 
 oracle/append_from_slice/5120
-                        time:   [9.6138 µs 9.6474 µs 9.6791 µs]
-                        thrpt:  [4.2318 GB/s 4.2457 GB/s 4.2605 GB/s]
+                        time:   [9.7892 µs 9.8126 µs 9.8339 µs]
+                        thrpt:  [4.1652 GB/s 4.1742 GB/s 4.1842 GB/s]
 
 oracle/append_from_slice/10240
-                        time:   [16.746 µs 17.002 µs 17.260 µs]
-                        thrpt:  [4.7461 GB/s 4.8183 GB/s 4.8918 GB/s]
+                        time:   [18.188 µs 18.341 µs 18.496 µs]
+                        thrpt:  [4.4292 GB/s 4.4665 GB/s 4.5041 GB/s]
+
 ```
 
 ### Profiler
@@ -82,5 +83,5 @@ oracle/append_from_slice/10240
 $ cargo install flamegraph
 
 # Run benchmarks with profiler.
-$ cargo flamegraph --bench ring -- --bench --profile-time 60
+$ cargo flamegraph --bench hadron -- --bench --profile-time 60
 ```

@@ -17,13 +17,13 @@ struct Log(u64);
 /// A reference implementation of ring buffer from a popular crate.
 struct Oracle<T>(AllocRingBuffer<T>);
 
-impl<T: Copy> Oracle<T> {
+impl<T: Clone> Oracle<T> {
     fn with_capacity(capacity: usize) -> Self {
         Self(AllocRingBuffer::new(capacity))
     }
 
     fn append_from_slice(&mut self, items: &[T]) {
-        self.0.extend(items.iter().map(|item| *item));
+        self.0.extend(items.iter().map(|item| item.clone()));
     }
 }
 

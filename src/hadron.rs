@@ -1,7 +1,7 @@
 //! Definition of a ring buffer.
 
 use crate::{Heap, Memory};
-use std::{marker::PhantomData, mem::needs_drop};
+use std::{cmp::min, marker::PhantomData, mem::needs_drop};
 
 /// Hadron is a fixed size ring buffer.
 ///
@@ -16,9 +16,6 @@ pub struct Hadron<T, Alloc = Heap<T>> {
 
     // Number of records currently held in the ring buffer.
     length: usize,
-
-    // Maximum number of records this ring buffer can hold.
-    capacity: usize,
 
     // A pre-allocated memory for ring buffer records.
     memory: Alloc,
@@ -47,7 +44,6 @@ impl<T> Hadron<T> {
         assert!(!needs_drop::<T>(), "Only trivially droppable types");
 
         Self {
-            capacity,
             next: 0,
             length: 0,
             phantom: PhantomData,
@@ -56,7 +52,7 @@ impl<T> Hadron<T> {
     }
 }
 
-impl<T: Copy, Alloc: Memory<T>> Hadron<T, Alloc> {
+impl<T: Clone, Alloc: Memory<T>> Hadron<T, Alloc> {
     /// Append a slice of items into this ring buffer.
     ///
     /// If newly appended records exceeds the capacity of this ring buffer,
@@ -66,18 +62,21 @@ impl<T: Copy, Alloc: Memory<T>> Hadron<T, Alloc> {
     ///
     /// * `items` - Items to append into this ring buffer.
     pub fn append_from_slice(&mut self, mut items: &[T]) {
+        // Get reference to the memory that holds ring buffer items.
+        let memory = self.memory.as_mut();
+
         // If number of items is greater than the capacity of this ring buffer, some of the items
         // will be overwritten. We can optimize this by skipping those items. This also allows us
         // to make this append at exactly 2 memcpy operations.
-        if items.len() > self.capacity {
-            let split = items.len() - self.capacity;
+        if items.len() > memory.len() {
+            let split = items.len() - memory.len();
             items = items.split_at(split).1;
         }
 
         // When we reach the end of the ring buffer, we wrap around and overwrite oldest items.
         // Which means we need exactly 2 memcpy operations. One from current index till end of
         // the buffer. Another one to start write from index of 0.
-        let remaining = self.capacity - self.next;
+        let remaining = memory.len() - self.next;
         let (first, second) = match items.split_at_checked(remaining) {
             Some(split) => split,
             None => (items, Default::default()),
@@ -85,13 +84,13 @@ impl<T: Copy, Alloc: Memory<T>> Hadron<T, Alloc> {
 
         // Split the backing memory into discrete writeable chunks.
         // Write the relevant portions of items into those chunks.
-        let (tail, head) = self.memory.as_mut().split_at_mut(self.next);
-        head[..first.len()].copy_from_slice(first);
-        tail[..second.len()].copy_from_slice(second);
+        let (tail, head) = memory.split_at_mut(self.next);
+        head[..first.len()].clone_from_slice(first);
+        tail[..second.len()].clone_from_slice(second);
 
         // Update state.
-        self.next = (self.next + items.len()) % self.capacity;
-        self.length = std::cmp::min(self.length + items.len(), self.capacity);
+        self.next = (self.next + items.len()) % memory.len();
+        self.length = min(self.length + items.len(), memory.len());
     }
 }
 
@@ -102,9 +101,11 @@ impl<T, Alloc: Memory<T>> Hadron<T, Alloc> {
     /// in two non-overlapping discrete chunks of items. When the ring buffer is not
     /// full, tail is always empty.
     pub fn as_slices(&self) -> (&[T], &[T]) {
-        // If the ring buffer has not wrapped around, the starting index is always 0.
+        // Get immutable reference to the underlying items.
         let memory = self.memory.as_ref();
-        let (second, first) = if self.length < self.capacity {
+
+        // If the ring buffer has not wrapped around, the starting index is always 0.
+        let (second, first) = if self.length < memory.len() {
             // There is only head in this case, no tail.
             // Because ring buffer has not wrapped around 0 yet, it's just a single slice.
             (Default::default(), &memory[..self.length])
@@ -140,13 +141,13 @@ mod tests {
     /// A reference implementation of ring buffer from a popular crate.
     struct Oracle<T>(AllocRingBuffer<T>);
 
-    impl<T: Copy> Oracle<T> {
+    impl<T: Clone> Oracle<T> {
         fn with_capacity(capacity: usize) -> Self {
             Self(AllocRingBuffer::new(capacity))
         }
 
         fn append_from_slice(&mut self, items: &[T]) {
-            self.0.extend(items.iter().map(|item| *item));
+            self.0.extend(items.iter().map(|item| item.clone()));
         }
     }
 
