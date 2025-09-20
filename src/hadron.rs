@@ -35,7 +35,6 @@ impl<T> Hadron<T> {
     /// * Ring buffer must have at least one item.
     /// * Number of items in bytes should be <= isize::MAX.
     /// * Only trivially droppable types supported.
-    /// * Ring buffer capacity has to be a power of 2.
     ///
     /// # Arguments
     ///
@@ -43,7 +42,6 @@ impl<T> Hadron<T> {
     pub fn with_capacity(capacity: usize) -> Self {
         assert!(capacity > 0, "Capacity must be > 0");
         assert!(!needs_drop::<T>(), "Item must be trivially droppable");
-        assert!(capacity.is_power_of_two(), "Capacity should be power of 2");
 
         Self {
             next: 0,
@@ -92,7 +90,7 @@ impl<T: Copy, Alloc: Memory<T>> Hadron<T, Alloc> {
         tail[..second.len()].copy_from_slice(second);
 
         // Update state.
-        self.next = (self.next + items.len()) & (memory.len() - 1);
+        self.next = (self.next + items.len()) % memory.len();
         self.length = min(self.length + items.len(), memory.len());
     }
 }
