@@ -7,5 +7,5 @@ pub(crate) mod hadron;
 pub(crate) mod memory;
 
 // Externally exposed types.
-pub use hadron::{Hadron, Item};
+pub use hadron::Hadron;
 pub use memory::{Heap, Memory};

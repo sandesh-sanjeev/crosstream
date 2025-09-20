@@ -1,10 +1,9 @@
 //! Definition of benchmarks.
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use crosstream::{Hadron, Item};
+use crosstream::Hadron;
 use ringbuffer::AllocRingBuffer;
 use std::time::Duration;
-use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 // About 8 GB of memory for benchmarks.
 const CAPACITY: usize = 1_073_741_824;
@@ -12,25 +11,13 @@ const CAPACITY: usize = 1_073_741_824;
 // Base batch size, different batch sizes will be multiples of this number.
 const BATCH_SIZE: usize = 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromBytes, IntoBytes, Immutable, KnownLayout)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Log(u64);
-
-impl Item for Log {
-    const SIZE: usize = size_of::<Self>();
-
-    fn to_bytes_slice(records: &[Self]) -> &[u8] {
-        records.as_bytes()
-    }
-
-    fn from_byte_slice(bytes: &[u8]) -> &[Self] {
-        <[Self]>::ref_from_bytes(bytes).expect("Should transmute back to items")
-    }
-}
 
 /// A reference implementation of ring buffer from a popular crate.
 struct Oracle<T>(AllocRingBuffer<T>);
 
-impl<T: Item> Oracle<T> {
+impl<T: Copy> Oracle<T> {
     fn with_capacity(capacity: usize) -> Self {
         Self(AllocRingBuffer::new(capacity))
     }
@@ -70,10 +57,11 @@ macro_rules! run_bench {
             for i in [2, 5, 10] {
                 // Batch size for the test.
                 let batch_size = BATCH_SIZE * i;
+                let batch_bytes = batch_size * size_of::<Log>();
 
                 // Tests to batch append into the ring buffer.
                 let items: Vec<_> = (1..=batch_size as u64).map(Log).collect();
-                group.throughput(Throughput::BytesDecimal((batch_size * Log::SIZE) as _));
+                group.throughput(Throughput::BytesDecimal(batch_bytes as _));
                 group.bench_function(format!("append_from_slice/{batch_size}"), |bencher| {
                     bencher.iter(|| ring.append_from_slice(&items))
                 });

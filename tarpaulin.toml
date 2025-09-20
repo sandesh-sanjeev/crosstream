@@ -12,6 +12,9 @@ engine = "Llvm"
 # Include test functions in the coverage statistics.
 include-tests = false
 
+# Files to skip from testing.
+exclude-files = ["benches/*"]
+
 # Final coverage report to generate.
 [report]
 out = ["Html", "Lcov"]

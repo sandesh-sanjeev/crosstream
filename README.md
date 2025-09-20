@@ -6,9 +6,6 @@ Crosstream provides different types of ring buffers, along with primitives to bu
 
 [![Coverage Status](https://coveralls.io/repos/github/sandesh-sanjeev/crosstream/badge.svg?branch=master)](https://coveralls.io/github/sandesh-sanjeev/crosstream?branch=master)
 
-Note that these test coverage numbers are not quite accurate. I haven't figured out
-how to filter out benchmark functions from coverage yet either.
-
 ## Security
 
 Crate makes some use of unsafe for better perf. However we use unsafe
@@ -48,17 +45,34 @@ On my Apple M1 Pro with 32 GB Memory.
 
 * Size of record is 8 bytes (u64).
 * About 8GB of total space for ring buffer. Holds just over a billion records.
-* Obviously means nothing unless you test it yourself for your use case.
+* Obviously means nothing unless you test it yourself, for your use case.
 * Comparison with another popular [ring buffer](https://docs.rs/ringbuffer/latest/ringbuffer/struct.AllocRingBuffer.htm) crate with similar features.
 
 ```bash
 $ cargo bench
-hadron/append           time:   [388.88 ns 408.76 ns 430.02 ns]
-                        thrpt:  [38.101 GB/s 40.082 GB/s 42.131 GB/s]
+hadron/append_from_slice/2048
+                        time:   [514.61 ns 531.95 ns 546.95 ns]
+                        thrpt:  [29.955 GB/s 30.800 GB/s 31.838 GB/s]
 
+hadron/append_from_slice/5120
+                        time:   [1.3023 µs 1.3266 µs 1.3514 µs]
+                        thrpt:  [30.309 GB/s 30.875 GB/s 31.452 GB/s]
 
-oracle/append           time:   [3.8921 µs 3.9396 µs 3.9812 µs]
-                        thrpt:  [4.1153 GB/s 4.1588 GB/s 4.2095 GB/s]
+hadron/append_from_slice/10240
+                        time:   [2.8596 µs 2.9025 µs 2.9421 µs]
+                        thrpt:  [27.844 GB/s 28.224 GB/s 28.648 GB/s]
+
+oracle/append_from_slice/2048
+                        time:   [3.5775 µs 3.6246 µs 3.6700 µs]
+                        thrpt:  [4.4643 GB/s 4.5202 GB/s 4.5797 GB/s]
+
+oracle/append_from_slice/5120
+                        time:   [9.6138 µs 9.6474 µs 9.6791 µs]
+                        thrpt:  [4.2318 GB/s 4.2457 GB/s 4.2605 GB/s]
+
+oracle/append_from_slice/10240
+                        time:   [16.746 µs 17.002 µs 17.260 µs]
+                        thrpt:  [4.7461 GB/s 4.8183 GB/s 4.8918 GB/s]
 ```
 
 ### Profiler

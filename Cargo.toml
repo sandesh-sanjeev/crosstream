@@ -18,9 +18,6 @@ criterion = "0.7"
 # For a reference implementation of ring buffer.
 ringbuffer = { version = "0.16", features = ["alloc"] }
 
-# For byte to record transmutations.
-zerocopy = { version = "0.8", features = ["derive"] }
-
 # Disable default benchmark harness.
 [[bench]]
 name = "hadron"

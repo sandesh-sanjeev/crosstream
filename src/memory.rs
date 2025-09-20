@@ -2,29 +2,30 @@
 
 use std::{
     alloc::{Layout, alloc, dealloc, handle_alloc_error},
+    ptr::NonNull,
     slice::{from_raw_parts, from_raw_parts_mut},
 };
 
 /// Marker trait for a blob of bytes.
-pub trait Memory: AsRef<[u8]> + AsMut<[u8]> {}
+pub trait Memory<T>: AsRef<[T]> + AsMut<[T]> {}
 
 // Safety: Raw pointer is only exposed via AsRef and AsMut.
-unsafe impl Sync for Heap {}
-unsafe impl Send for Heap {}
+unsafe impl<T> Sync for Heap<T> {}
+unsafe impl<T> Send for Heap<T> {}
 
-impl Memory for Heap {}
+impl<T> Memory<T> for Heap<T> {}
 
 /// Memory allocated using the registered global allocator.
 ///
 /// * If no custom allocator is registered, the default allocator from Rust std is used.
 /// * Uses RAII pattern to free memory when heap memory goes out of scope.
-pub struct Heap {
-    len: usize,
-    ptr: *mut u8,
+pub struct Heap<T> {
+    cap: usize,
     layout: Layout,
+    ptr: NonNull<T>,
 }
 
-impl Heap {
+impl<T> Heap<T> {
     /// Allocate some memory on heap.
     ///
     /// Memory will be aligned to the alignment of the generic type.
@@ -35,57 +36,49 @@ impl Heap {
     ///
     /// # Arguments
     ///
-    /// * `capacity` - Maximum number of items of type `T` the allocation should accommodate.
-    pub(crate) fn alloc<T>(capacity: usize) -> Heap {
-        // Size and alignment of the type held in ring buffer.
-        let size = size_of::<T>();
-        let align = align_of::<T>();
-
+    /// * `cap` - Maximum number of items this allocation was accommodate.
+    pub(crate) fn alloc(cap: usize) -> Self {
         // Layout of memory to allocate for the ring buffer.
-        let len = size * capacity;
-        let Ok(layout) = Layout::from_size_align(len, align) else {
+        let Ok(layout) = Layout::array::<T>(cap) else {
             panic!("Trying to allocate more than isize::MAX");
         };
 
         // Allocate memory and track pointer to that memory.
         // We'll get a non-null pointer only if allocation was successful.
-        let ptr = unsafe { alloc(layout) };
-        if ptr.is_null() {
-            // This will never complete normally, i.e, if we reach this point,
-            // no code after this will be executed. What exactly happens depends
-            // on configuration of the binary using this crate.
-            handle_alloc_error(layout);
-        }
+        let ptr = match NonNull::new(unsafe { alloc(layout) as *mut T }) {
+            Some(ptr) => ptr,
+            None => handle_alloc_error(layout),
+        };
 
         // Return newly allocated memory.
-        Self { len, ptr, layout }
+        Self { cap, ptr, layout }
     }
 }
 
-impl Drop for Heap {
+impl<T> Drop for Heap<T> {
     fn drop(&mut self) {
         // Safety
         // * Cannot initialize with invalid pointer and layout.
         unsafe {
-            dealloc(self.ptr, self.layout);
+            dealloc(self.ptr.as_ptr() as *mut u8, self.layout);
         }
     }
 }
 
-impl AsRef<[u8]> for Heap {
-    fn as_ref(&self) -> &[u8] {
+impl<T> AsRef<[T]> for Heap<T> {
+    fn as_ref(&self) -> &[T] {
         // Safety
         // * Pointer is guaranteed to be initialized.
         // * length is guaranteed to be > 0.
-        unsafe { from_raw_parts(self.ptr, self.len) }
+        unsafe { from_raw_parts(self.ptr.as_ptr(), self.cap) }
     }
 }
 
-impl AsMut<[u8]> for Heap {
-    fn as_mut(&mut self) -> &mut [u8] {
+impl<T> AsMut<[T]> for Heap<T> {
+    fn as_mut(&mut self) -> &mut [T] {
         // Safety
         // * Pointer is guaranteed to be initialized.
         // * length is guaranteed to be > 0.
-        unsafe { from_raw_parts_mut(self.ptr, self.len) }
+        unsafe { from_raw_parts_mut(self.ptr.as_ptr(), self.cap) }
     }
 }

@@ -3,43 +3,13 @@
 use crate::{Heap, Memory};
 use std::{marker::PhantomData, mem::needs_drop};
 
-/// Fixed sized type with compile time known layout, size and alignment.
-///
-/// The basic idea is that this type provides support for zero-copy transmutation
-/// between a record and byte slice. You probably don't want to handwrite these
-/// yourself because it's quite error prone. There are crates that allows one to
-/// safely perform this transmutation.
-///
-/// * [`zerocopy`](https://docs.rs/zerocopy/latest/zerocopy/)
-/// * [`bytemuck`](https://docs.rs/bytemuck/latest/bytemuck/)
-pub trait Item: Sized + Copy {
-    /// Number of bytes needed to represent this type.
-    const SIZE: usize;
-
-    /// Transmute a slice of items to bytes.
-    ///
-    /// # Arguments
-    ///
-    /// * `items` - Slice of items to transmute.
-    fn to_bytes_slice(items: &[Self]) -> &[u8];
-
-    /// Transmute a slice of bytes into a slice of items.
-    ///
-    /// # Arguments
-    ///
-    /// * `bytes` - Bytes to transmute to slice of items.
-    fn from_byte_slice(bytes: &[u8]) -> &[Self];
-}
-
 /// Hadron is a fixed size ring buffer.
 ///
 /// It is designed for high performance use cases and makes trade-offs to achieve it.
-/// Bulk append is guaranteed to be exactly 2 memcpy operations. It provides a reference
-/// to items stored in the ring buffer in constant time. The big trade-off here is that
-/// only elements of type [`Item`] can be appended into the ring buffer and that element
-/// needs to be trivially droppable.
+/// Bulk append and copy is guaranteed to be exactly 2 memcpy operations. Additionally
+/// provides reference to all the items held in constant time.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Hadron<T, Alloc = Heap> {
+pub struct Hadron<T, Alloc = Heap<T>> {
     // Index where the next append will occur.
     // This will wrap around to 0 when next == cap.
     next: usize,
@@ -57,7 +27,7 @@ pub struct Hadron<T, Alloc = Heap> {
     phantom: PhantomData<T>,
 }
 
-impl<T: Item> Hadron<T> {
+impl<T> Hadron<T> {
     /// Create a new instance of this ring buffer.
     ///
     /// All required memory is allocated during initialization. It is
@@ -81,13 +51,13 @@ impl<T: Item> Hadron<T> {
             next: 0,
             length: 0,
             phantom: PhantomData,
-            memory: Heap::alloc::<T>(capacity),
+            memory: Heap::alloc(capacity),
         }
     }
 }
 
-impl<T: Item, Alloc: Memory> Hadron<T, Alloc> {
-    /// Append items into this ring buffer.
+impl<T: Copy, Alloc: Memory<T>> Hadron<T, Alloc> {
+    /// Append a slice of items into this ring buffer.
     ///
     /// If newly appended records exceeds the capacity of this ring buffer,
     /// space is reclaimed by evicting old records from the ring buffer.
@@ -114,42 +84,40 @@ impl<T: Item, Alloc: Memory> Hadron<T, Alloc> {
         };
 
         // Split the backing memory into discrete writeable chunks.
-        let mid = self.next * T::SIZE;
-        let (tail, head) = self.memory.as_mut().split_at_mut(mid);
-
-        // Write the first batch.
-        let head_bytes = T::to_bytes_slice(first);
-        head[..head_bytes.len()].copy_from_slice(head_bytes);
-
-        // Write the second batch.
-        let tail_bytes = T::to_bytes_slice(second);
-        tail[..tail_bytes.len()].copy_from_slice(tail_bytes);
+        // Write the relevant portions of items into those chunks.
+        let (tail, head) = self.memory.as_mut().split_at_mut(self.next);
+        head[..first.len()].copy_from_slice(first);
+        tail[..second.len()].copy_from_slice(second);
 
         // Update state.
         self.next = (self.next + items.len()) % self.capacity;
         self.length = std::cmp::min(self.length + items.len(), self.capacity);
     }
+}
 
+impl<T, Alloc: Memory<T>> Hadron<T, Alloc> {
     /// Get a reference to items currently stored in the ring buffer.
     ///
     /// Since the ring buffer can wrap around, items in the ring buffer are stored
     /// in two non-overlapping discrete chunks of items. When the ring buffer is not
     /// full, tail is always empty.
     pub fn as_slices(&self) -> (&[T], &[T]) {
-        // If the ring buffer has not wrapped around, then the starting index is always 0.
+        // If the ring buffer has not wrapped around, the starting index is always 0.
         let memory = self.memory.as_ref();
-        if self.length < self.capacity {
+        let (second, first) = if self.length < self.capacity {
             // There is only head in this case, no tail.
             // Because ring buffer has not wrapped around 0 yet, it's just a single slice.
-            let head = &memory[..self.length * T::SIZE];
-            (T::from_byte_slice(head), Default::default())
+            (Default::default(), &memory[..self.length])
         } else {
             // If the ring buffer has indeed wrapped around, then starting index is the same as next.
             // In this case the ring buffer can be split into two at this point. The first half contains
             // the tail of the ring buffer. And the second half contains head of the ring buffer.
-            let (second, first) = memory.split_at(self.next * T::SIZE);
-            (T::from_byte_slice(first), T::from_byte_slice(second))
-        }
+            memory.split_at(self.next)
+        };
+
+        // Return head and tail reversed,
+        // cause that's the natural way to think about it.
+        (first, second)
     }
 
     /// An iterator to iterate through all the items currently in ring buffer.
@@ -165,38 +133,14 @@ mod tests {
     use bolero::{TypeGenerator, check};
     use ringbuffer::{AllocRingBuffer, RingBuffer};
     use rstest::rstest;
-    use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-    #[derive(
-        Debug,
-        Clone,
-        Copy,
-        PartialEq,
-        Eq,
-        FromBytes,
-        IntoBytes,
-        Immutable,
-        KnownLayout,
-        TypeGenerator,
-    )]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, TypeGenerator)]
     struct Log(u64);
-
-    impl Item for Log {
-        const SIZE: usize = size_of::<Log>();
-
-        fn to_bytes_slice(records: &[Self]) -> &[u8] {
-            records.as_bytes()
-        }
-
-        fn from_byte_slice(bytes: &[u8]) -> &[Self] {
-            <[Self]>::ref_from_bytes(bytes).expect("Should transmute back to items")
-        }
-    }
 
     /// A reference implementation of ring buffer from a popular crate.
     struct Oracle<T>(AllocRingBuffer<T>);
 
-    impl<T: Item> Oracle<T> {
+    impl<T: Copy> Oracle<T> {
         fn with_capacity(capacity: usize) -> Self {
             Self(AllocRingBuffer::new(capacity))
         }
