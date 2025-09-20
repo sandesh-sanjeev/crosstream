@@ -41,16 +41,13 @@ impl<T> Heap<T> {
         assert!(cap > 0, "zero length memory cannot be allocated");
 
         // Layout of memory to allocate for the ring buffer.
-        let Ok(layout) = Layout::array::<T>(cap) else {
-            panic!("Trying to allocate more than isize::MAX");
-        };
+        let layout = Layout::array::<T>(cap)
+            .expect("Trying to allocate more than isize::MAX worth of memory");
 
         // Allocate memory and track pointer to that memory.
         // We'll get a non-null pointer only if allocation was successful.
-        let ptr = match NonNull::new(unsafe { alloc(layout) as *mut T }) {
-            Some(ptr) => ptr,
-            None => handle_alloc_error(layout),
-        };
+        let ptr = NonNull::new(unsafe { alloc(layout) as *mut T })
+            .unwrap_or_else(|| handle_alloc_error(layout));
 
         // Return newly allocated memory.
         Self { cap, ptr, layout }

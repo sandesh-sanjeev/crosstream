@@ -35,13 +35,15 @@ impl<T> Hadron<T> {
     /// * Ring buffer must have at least one item.
     /// * Number of items in bytes should be <= isize::MAX.
     /// * Only trivially droppable types supported.
+    /// * Ring buffer capacity has to be a power of 2.
     ///
     /// # Arguments
     ///
     /// * `capacity` - Maximum number of items this ring buffer can hold.
     pub fn with_capacity(capacity: usize) -> Self {
-        assert!(capacity > 0, "Must contain at least one item");
-        assert!(!needs_drop::<T>(), "Only trivially droppable types");
+        assert!(capacity > 0, "Capacity must be > 0");
+        assert!(!needs_drop::<T>(), "Item must be trivially droppable");
+        assert!(capacity.is_power_of_two(), "Capacity should be power of 2");
 
         Self {
             next: 0,
@@ -90,7 +92,7 @@ impl<T: Copy, Alloc: Memory<T>> Hadron<T, Alloc> {
         tail[..second.len()].copy_from_slice(second);
 
         // Update state.
-        self.next = (self.next + items.len()) % memory.len();
+        self.next = (self.next + items.len()) & (memory.len() - 1);
         self.length = min(self.length + items.len(), memory.len());
     }
 }
@@ -148,7 +150,11 @@ mod tests {
         }
 
         fn append_from_slice(&mut self, items: &[T]) {
-            self.0.extend(items.iter().map(|item| item.clone()));
+            self.0.extend(items.iter().map(|item| *item));
+        }
+
+        fn iter(&self) -> impl Iterator<Item = &T> {
+            self.0.iter()
         }
     }
 
@@ -172,7 +178,7 @@ mod tests {
 
                     // Make sure items are the same between the ring buffers.
                     let hadron_items: Vec<_> = hadron.iter().collect();
-                    let oracle_items: Vec<_> = oracle.0.iter().collect();
+                    let oracle_items: Vec<_> = oracle.iter().collect();
                     assert_eq!(hadron_items, oracle_items);
                 }
             });

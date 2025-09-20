@@ -23,7 +23,7 @@ impl<T: Copy> Oracle<T> {
     }
 
     fn append_from_slice(&mut self, items: &[T]) {
-        self.0.extend(items.iter().map(|item| item.clone()));
+        self.0.extend(items.iter().map(|item| *item));
     }
 }
 
