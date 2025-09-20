@@ -9,14 +9,8 @@ edition = "2024"
 # For property based tests.
 bolero = "0.13"
 
-# For parameterized tests.
-rstest = "0.26"
-
 # For benchmark harness.
 criterion = "0.7"
-
-# For a reference implementation of ring buffer.
-ringbuffer = { version = "0.16", features = ["alloc"] }
 
 # Disable default benchmark harness.
 [[bench]]

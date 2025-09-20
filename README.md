@@ -1,6 +1,6 @@
 # Crosstream
 
-Crosstream provides different types of ring buffers, along with primitives to build them yourself.
+Crosstream provides high performance ring buffers.
 
 [![Build](https://github.com/sandesh-sanjeev/crosstream/actions/workflows/rust.yml/badge.svg?branch=master)](https://github.com/sandesh-sanjeev/crosstream/actions/workflows/rust.yml)
 
@@ -46,34 +46,16 @@ On my Apple M1 Pro with 32 GB Memory.
 * Size of record is 8 bytes (u64).
 * About 8GB of total space for ring buffer. Holds just over a billion records.
 * Obviously means nothing unless you test it yourself, for your use case.
-* Comparison with another popular [ring buffer](https://docs.rs/ringbuffer/latest/ringbuffer/struct.AllocRingBuffer.htm) crate with similar features.
 
 ```bash
 $ cargo bench
-hadron/append_from_slice/2048
-                        time:   [451.31 ns 475.34 ns 498.59 ns]
-                        thrpt:  [32.861 GB/s 34.468 GB/s 36.303 GB/s]
+hadron/copy_from_slice/5120
+                        time:   [1.0533 µs 1.1308 µs 1.2067 µs]
+                        thrpt:  [33.944 GB/s 36.223 GB/s 38.889 GB/s]
 
-hadron/append_from_slice/5120
-                        time:   [1.1388 µs 1.1942 µs 1.2500 µs]
-                        thrpt:  [32.769 GB/s 34.299 GB/s 35.967 GB/s]
-
-hadron/append_from_slice/10240
-                        time:   [2.1686 µs 2.3038 µs 2.4395 µs]
-                        thrpt:  [33.581 GB/s 35.559 GB/s 37.776 GB/s]
-
-oracle/append_from_slice/2048
-                        time:   [3.8836 µs 3.9204 µs 3.9545 µs]
-                        thrpt:  [4.1431 GB/s 4.1791 GB/s 4.2188 GB/s]
-
-oracle/append_from_slice/5120
-                        time:   [9.7892 µs 9.8126 µs 9.8339 µs]
-                        thrpt:  [4.1652 GB/s 4.1742 GB/s 4.1842 GB/s]
-
-oracle/append_from_slice/10240
-                        time:   [18.188 µs 18.341 µs 18.496 µs]
-                        thrpt:  [4.4292 GB/s 4.4665 GB/s 4.5041 GB/s]
-
+oracle/copy_from_slice/5120
+                        time:   [1.0947 µs 1.1695 µs 1.2491 µs]
+                        thrpt:  [32.791 GB/s 35.022 GB/s 37.417 GB/s]
 ```
 
 ### Profiler

@@ -2,24 +2,20 @@
 
 use std::{
     alloc::{Layout, alloc, dealloc, handle_alloc_error},
+    ops::{Deref, DerefMut},
     ptr::NonNull,
     slice::{from_raw_parts, from_raw_parts_mut},
 };
-
-/// Marker trait for a blob of bytes.
-pub trait Memory<T>: AsRef<[T]> + AsMut<[T]> {}
 
 // Safety: Raw pointer is only exposed via AsRef and AsMut.
 unsafe impl<T> Sync for Heap<T> {}
 unsafe impl<T> Send for Heap<T> {}
 
-impl<T> Memory<T> for Heap<T> {}
-
 /// Memory allocated using the registered global allocator.
 ///
 /// * If no custom allocator is registered, the default allocator from Rust std is used.
 /// * Uses RAII pattern to free memory when heap memory goes out of scope.
-pub struct Heap<T> {
+pub(crate) struct Heap<T> {
     cap: usize,
     layout: Layout,
     ptr: NonNull<T>,
@@ -37,6 +33,7 @@ impl<T> Heap<T> {
     /// # Arguments
     ///
     /// * `cap` - Maximum number of items this allocation was accommodate.
+    #[track_caller]
     pub(crate) fn alloc(cap: usize) -> Self {
         assert!(cap > 0, "zero length memory cannot be allocated");
 
@@ -46,6 +43,7 @@ impl<T> Heap<T> {
 
         // Allocate memory and track pointer to that memory.
         // We'll get a non-null pointer only if allocation was successful.
+        // Safety: We just made sure layout is correct.
         let ptr = NonNull::new(unsafe { alloc(layout) as *mut T })
             .unwrap_or_else(|| handle_alloc_error(layout));
 
@@ -55,6 +53,7 @@ impl<T> Heap<T> {
 }
 
 impl<T> Drop for Heap<T> {
+    #[inline]
     fn drop(&mut self) {
         // Safety
         // * Cannot initialize with invalid pointer and layout.
@@ -64,8 +63,11 @@ impl<T> Drop for Heap<T> {
     }
 }
 
-impl<T> AsRef<[T]> for Heap<T> {
-    fn as_ref(&self) -> &[T] {
+impl<T> Deref for Heap<T> {
+    type Target = [T];
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
         // Safety
         // * Pointer is guaranteed to be initialized.
         // * length is guaranteed to be > 0.
@@ -73,8 +75,9 @@ impl<T> AsRef<[T]> for Heap<T> {
     }
 }
 
-impl<T> AsMut<[T]> for Heap<T> {
-    fn as_mut(&mut self) -> &mut [T] {
+impl<T> DerefMut for Heap<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
         // Safety
         // * Pointer is guaranteed to be initialized.
         // * length is guaranteed to be > 0.
