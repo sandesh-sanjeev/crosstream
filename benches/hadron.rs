@@ -17,7 +17,7 @@ struct Log(u64);
 /// A reference implementation of ring buffer from a popular crate.
 struct Oracle<T>(AllocRingBuffer<T>);
 
-impl<T: Clone> Oracle<T> {
+impl<T: Copy> Oracle<T> {
     fn with_capacity(capacity: usize) -> Self {
         Self(AllocRingBuffer::new(capacity))
     }

@@ -52,7 +52,7 @@ impl<T> Hadron<T> {
     }
 }
 
-impl<T: Clone, Alloc: Memory<T>> Hadron<T, Alloc> {
+impl<T: Copy, Alloc: Memory<T>> Hadron<T, Alloc> {
     /// Append a slice of items into this ring buffer.
     ///
     /// If newly appended records exceeds the capacity of this ring buffer,
@@ -83,10 +83,11 @@ impl<T: Clone, Alloc: Memory<T>> Hadron<T, Alloc> {
         };
 
         // Split the backing memory into discrete writeable chunks.
-        // Write the relevant portions of items into those chunks.
         let (tail, head) = memory.split_at_mut(self.next);
-        head[..first.len()].clone_from_slice(first);
-        tail[..second.len()].clone_from_slice(second);
+
+        // Write the relevant portions of items into those chunks.
+        head[..first.len()].copy_from_slice(first);
+        tail[..second.len()].copy_from_slice(second);
 
         // Update state.
         self.next = (self.next + items.len()) % memory.len();
@@ -141,7 +142,7 @@ mod tests {
     /// A reference implementation of ring buffer from a popular crate.
     struct Oracle<T>(AllocRingBuffer<T>);
 
-    impl<T: Clone> Oracle<T> {
+    impl<T: Copy> Oracle<T> {
         fn with_capacity(capacity: usize) -> Self {
             Self(AllocRingBuffer::new(capacity))
         }
