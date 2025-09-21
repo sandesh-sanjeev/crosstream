@@ -50,12 +50,12 @@ On my Apple M1 Pro with 32 GB Memory.
 ```bash
 $ cargo bench
 hadron/copy_from_slice/5120
-                        time:   [1.0533 µs 1.1308 µs 1.2067 µs]
-                        thrpt:  [33.944 GB/s 36.223 GB/s 38.889 GB/s]
+                        time:   [890.59 ns 937.80 ns 988.07 ns]
+                        thrpt:  [41.455 GB/s 43.677 GB/s 45.992 GB/s]
 
 oracle/copy_from_slice/5120
-                        time:   [1.0947 µs 1.1695 µs 1.2491 µs]
-                        thrpt:  [32.791 GB/s 35.022 GB/s 37.417 GB/s]
+                        time:   [1.3498 µs 1.4415 µs 1.5264 µs]
+                        thrpt:  [26.835 GB/s 28.414 GB/s 30.345 GB/s]
 ```
 
 ### Profiler

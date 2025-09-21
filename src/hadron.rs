@@ -1,7 +1,7 @@
 //! Definition of a ring buffer.
 
-use crate::memory::Heap;
-use std::{cmp::min, collections::VecDeque, marker::PhantomData};
+use crate::heap::Array;
+use std::{cmp::min, fmt::Debug};
 
 /// Hadron is a fixed size ring buffer.
 ///
@@ -17,10 +17,7 @@ pub struct Hadron<T> {
     length: usize,
 
     // A pre-allocated memory for ring buffer records.
-    memory: Heap<T>,
-
-    // Type of record held in the ring buffer.
-    phantom: PhantomData<T>,
+    memory: Array<T>,
 }
 
 impl<T> Hadron<T> {
@@ -44,8 +41,7 @@ impl<T> Hadron<T> {
         Self {
             next: 0,
             length: 0,
-            phantom: PhantomData,
-            memory: Heap::alloc(capacity),
+            memory: Array::alloc(capacity),
         }
     }
 
@@ -56,24 +52,23 @@ impl<T> Hadron<T> {
     /// full, tail is always empty.
     #[inline]
     pub fn as_slices(&self) -> (&[T], &[T]) {
-        // Get immutable reference to the underlying items.
-        let memory = &self.memory;
-
         // If the ring buffer has not wrapped around, the starting index is always 0.
-        let (second, first) = if self.length < memory.len() {
-            // There is only head in this case, no tail.
-            // Because ring buffer has not wrapped around 0 yet, it's just a single slice.
-            (Default::default(), &memory[..self.length])
-        } else {
-            // If the ring buffer has indeed wrapped around, then starting index is the same as next.
-            // In this case the ring buffer can be split into two at this point. The first half contains
-            // the tail of the ring buffer. And the second half contains head of the ring buffer.
-            memory.split_at(self.next)
-        };
+        let capacity = self.memory.len();
+        if self.length < capacity {
+            // Head of the ring buffer.
+            let head = self.memory.as_slice(0, self.length);
 
-        // Return head and tail reversed,
-        // cause that's the natural way to think about it.
-        (first, second)
+            (head, Default::default())
+        } else {
+            // Head of the ring buffer.
+            let head = self.memory.as_slice(self.next, capacity - self.next);
+
+            // Tail of the ring buffer.
+            let tail = self.memory.as_slice(0, self.next);
+
+            // Return both halves of the ring buffer.
+            (head, tail)
+        }
     }
 
     /// An iterator to iterate through all the items currently in ring buffer.
@@ -84,7 +79,7 @@ impl<T> Hadron<T> {
     }
 }
 
-impl<T: Copy> Hadron<T> {
+impl<T: Copy + Debug> Hadron<T> {
     /// Append a slice of items into this ring buffer.
     ///
     /// If newly appended records exceeds the capacity of this ring buffer,
@@ -94,107 +89,49 @@ impl<T: Copy> Hadron<T> {
     ///
     /// * `items` - Items to append into this ring buffer.
     #[inline]
-    pub fn copy_from_slice(&mut self, mut items: &[T]) {
-        // Get reference to the memory that holds ring buffer items.
-        let memory = self.memory.as_mut();
+    pub fn copy_from_slice(&mut self, items: &[T]) {
+        // Maximum bytes memory can accommodate.
+        let capacity = self.memory.len();
 
-        // If number of items is greater than the capacity of this ring buffer, some of the items
-        // will be overwritten. We can optimize this by skipping those items. This also allows us
-        // to make this append at exactly 2 memcpy operations.
-        if items.len() > memory.len() {
-            let split = items.len() - memory.len();
-            items = items.split_at(split).1;
+        // Index of items from where writes can begin,
+        let src = items.as_ptr();
+        let src_start = items.len().saturating_sub(capacity);
+        let src_count = items.len() - src_start;
+
+        // Items that can be written till end of the ring buffer.
+        let remaining = capacity - self.next;
+
+        // If remaining is >= than number of items to write,
+        // all of it can be written in one shot
+        if remaining > src_count {
+            // Everything can be copied in one shot.
+            self.memory.memcpy(self.next, src, src_start, src_count);
+
+            // Cannot wrap around since remaining > src_count.
+            self.next += src_count;
+
+            // To handle the case where ring buffer hasn't filled up yet.
+            self.length = min(self.length + src_count, capacity);
+        } else {
+            // First write out items till the end of the ring buffer.
+            self.memory.memcpy(self.next, src, src_start, remaining);
+
+            // Then write out the rest.
+            let tail_count = src_count - remaining;
+            let tail_start = src_start + remaining;
+            self.memory.memcpy(0, src, tail_start, tail_count);
+
+            // For next iteration.
+            self.next = tail_count;
+            self.length = capacity;
         }
-
-        // When we reach the end of the ring buffer, we wrap around and overwrite oldest items.
-        // Which means we need exactly 2 memcpy operations. One from current index till end of
-        // the buffer. Another one to start write from index of 0.
-        let remaining = memory.len() - self.next;
-        let (first, second) = match items.split_at_checked(remaining) {
-            Some(split) => split,
-            None => (items, Default::default()),
-        };
-
-        // Split the backing memory into discrete writeable chunks.
-        let (tail, head) = memory.split_at_mut(self.next);
-
-        // Write the relevant portions of items into those chunks.
-        head[..first.len()].copy_from_slice(first);
-        tail[..second.len()].copy_from_slice(second);
-
-        // Update state.
-        self.next = (self.next + items.len()) % memory.len();
-        self.length = min(self.length + items.len(), memory.len());
-    }
-}
-
-/// A reference implementation of ring buffer backed by [`VecDeque`].
-pub struct Oracle<T> {
-    capacity: usize,
-    deque: VecDeque<T>,
-}
-
-impl<T> Oracle<T> {
-    /// Create a new instance of this ring buffer.
-    ///
-    /// All required memory is allocated during initialization. It is
-    /// guaranteed that no allocations happen after initialization.
-    ///
-    /// # Panic
-    ///
-    /// * Ring buffer must have at least one item.
-    /// * Number of items in bytes should be <= isize::MAX.
-    ///
-    /// # Arguments
-    ///
-    /// * `capacity` - Maximum number of items this ring buffer can hold.
-    pub fn with_capacity(capacity: usize) -> Self {
-        assert!(capacity > 0, "Capacity must be > 0");
-
-        Self {
-            capacity,
-            deque: VecDeque::with_capacity(capacity),
-        }
-    }
-
-    /// An iterator to iterate through all the items currently in ring buffer.
-    #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.deque.iter()
-    }
-}
-
-impl<T: Clone> Oracle<T> {
-    /// Append a slice of items into this ring buffer.
-    ///
-    /// If newly appended records exceeds the capacity of this ring buffer,
-    /// space is reclaimed by evicting old records from the ring buffer.
-    ///
-    /// # Arguments
-    ///
-    /// * `items` - Items to append into this ring buffer.
-    #[inline]
-    pub fn copy_from_slice(&mut self, mut items: &[T]) {
-        // Skip items that will never be visible in this ring buffer.
-        if items.len() > self.capacity {
-            let split = items.len() - self.capacity;
-            items = items.split_at(split).1;
-        }
-
-        // Make space in the ring buffer for this batch of items.
-        let remaining = self.capacity - self.deque.len();
-        if items.len() > remaining {
-            self.deque.drain(..(items.len() - remaining));
-        }
-
-        // Append all items items into the ring buffer in one shot.
-        self.deque.extend(items.iter().map(Clone::clone));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Oracle;
     use bolero::{TypeGenerator, check, generator};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, TypeGenerator)]

@@ -4,7 +4,9 @@
 
 // Internally exposed modules.
 pub(crate) mod hadron;
-pub(crate) mod memory;
+pub(crate) mod heap;
+pub(crate) mod oracle;
 
 // Externally exposed types.
-pub use hadron::{Hadron, Oracle};
+pub use hadron::Hadron;
+pub use oracle::Oracle;
